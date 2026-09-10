@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light" />
     <title>Sona</title>
     <link rel="stylesheet" href="css/app.css" />
-    <script src="js/app.js" defer></script>
+    <script src="js/app.js" type="module"></script>
   </head>
   <body>
     <div class="shell">
@@ -20,6 +20,10 @@
           <button class="nav-item" type="button" data-view="library">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H18a1 1 0 0 1 1 1v14.5A2.5 2.5 0 0 0 16.5 16H7.5A2.5 2.5 0 0 0 5 18.5v-13Z" /><path d="M8.5 7.5h7M8.5 11h5" /></svg>
             <span>我的音频</span>
+          </button>
+          <button class="nav-item" type="button" data-view="settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h8m4 0h4M4 17h3m4 0h9M12 4v6m-5 4v6" /></svg>
+            <span>模型设置</span>
           </button>
         </nav>
       </aside>
@@ -52,7 +56,59 @@
             <button class="primary-button" type="button" data-upload-trigger>上传音频</button>
           </div>
         </section>
+        <section class="view settings-view" data-panel="settings" aria-labelledby="settings-title" hidden>
+          <h1 class="sr-only" id="settings-title">模型设置</h1>
+          <div class="settings-groups">
+            <section class="settings-group" aria-labelledby="speech-model-title">
+              <div class="group-heading">
+                <h2 id="speech-model-title">音频转文字模型</h2>
+              </div>
+              <div id="speech-models">
+                <p class="models-loading" role="status">正在读取模型列表…</p>
+              </div>
+              <div class="models-feedback" id="models-feedback" hidden>
+                <p id="models-feedback-message" role="status"></p>
+                <button class="secondary-button" id="models-reconnect" type="button">重新连接</button>
+              </div>
+            </section>
+            <section class="settings-group" aria-labelledby="ai-model-title">
+              <div class="group-heading">
+                <h2 id="ai-model-title">AI 模型</h2>
+                <button class="secondary-button" type="button">新增模型</button>
+              </div>
+              <div class="models-empty">
+                <span>尚未添加 AI 模型</span>
+              </div>
+            </section>
+          </div>
+        </section>
       </main>
     </div>
+    <template id="speech-model-template">
+      <article class="model-option">
+        <div class="model-info">
+          <span class="model-option-indicator" aria-hidden="true"></span>
+          <div class="model-option-content">
+            <strong data-model-name></strong>
+            <small data-model-detail></small>
+          </div>
+        </div>
+        <div class="model-actions">
+          <span class="model-badge" data-model-status role="status"></span>
+          <button class="secondary-button model-action" data-model-action type="button"></button>
+        </div>
+        <div class="speech-download-progress" data-model-progress-region hidden>
+          <progress data-model-progress max="1" aria-label="离线语言资源下载进度"></progress>
+          <div class="speech-progress-meta">
+            <span data-model-progress-value></span>
+            <span data-model-elapsed></span>
+          </div>
+        </div>
+        <details class="speech-error" data-model-error hidden>
+          <summary>错误详情</summary>
+          <pre data-model-error-detail></pre>
+        </details>
+      </article>
+    </template>
   </body>
 </html>

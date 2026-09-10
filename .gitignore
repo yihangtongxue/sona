@@ -8,3 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local application data and SQLite sidecar files
+.data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

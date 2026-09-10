@@ -1,3 +1,5 @@
+import { openModelSettings } from "./models.js";
+
 const navigationItems = document.querySelectorAll("[data-view]");
 const panels = document.querySelectorAll("[data-panel]");
 const fileInput = document.querySelector("#audio-file");
@@ -12,9 +14,9 @@ function showView(viewName) {
     item.toggleAttribute("aria-current", isActive);
   });
   panels.forEach((panel) => {
-    const isActive = panel.dataset.panel === viewName;
-    panel.hidden = !isActive;
+    panel.hidden = panel.dataset.panel !== viewName;
   });
+  if (viewName === "settings") openModelSettings();
 }
 
 function displaySelectedFile(file) {
