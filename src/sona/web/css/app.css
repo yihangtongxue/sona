@@ -1,0 +1,65 @@
+/* Reset browser defaults before applying the application theme. */
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; padding: 0; }
+html, body { min-height: 100%; }
+body { min-height: 100vh; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+button, input { font: inherit; }
+button { border: 0; background: none; color: inherit; }
+svg { display: block; }
+
+:root {
+  color-scheme: light;
+  --canvas: #f7f8fa;
+  --surface: #ffffff;
+  --surface-muted: #f2f4f7;
+  --ink: #172033;
+  --ink-muted: #667085;
+  --line: #e4e7ec;
+  --line-strong: #d0d5dd;
+  --accent: #4263eb;
+  --accent-soft: #edf1ff;
+  --sidebar-width: 216px;
+}
+
+body { overflow: hidden; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--canvas); }
+.shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); min-height: 100vh; }
+.sidebar { display: flex; flex-direction: column; min-height: 100vh; padding: 28px 16px 16px; border-right: 1px solid var(--line); background: var(--surface); }
+.brand { width: max-content; align-self: center; margin: 0 0 40px; color: var(--ink); font-size: 1.25rem; font-weight: 720; letter-spacing: 0; text-decoration: none; }
+.navigation { display: grid; gap: 4px; }
+.nav-item { display: flex; align-items: center; min-height: 44px; gap: 12px; padding: 0 12px; border-radius: 6px; color: var(--ink-muted); cursor: pointer; font-size: .9375rem; font-weight: 560; text-align: left; transition: background-color 150ms ease, color 150ms ease; }
+.nav-item svg, .library-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.nav-item:hover { color: var(--ink); background: var(--surface-muted); }
+.nav-item.is-active { color: var(--accent); background: var(--accent-soft); }
+.content { min-width: 0; overflow-y: auto; }
+.view { width: min(760px, calc(100% - 80px)); margin: 0 auto; padding: 96px 0; }
+.page-header { max-width: 520px; margin-bottom: 40px; }
+.eyebrow { margin-bottom: 12px; color: var(--accent); font-size: .8125rem; font-weight: 700; }
+h1 { margin-bottom: 12px; font-size: 2rem; font-weight: 720; line-height: 1.2; }
+.page-header > p:last-child, .empty-library p { color: var(--ink-muted); font-size: 1rem; line-height: 1.65; }
+.drop-zone { display: flex; min-height: 312px; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 32px; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--ink-muted); background: var(--surface); cursor: pointer; text-align: center; transition: border-color 150ms ease, background-color 150ms ease; }
+.drop-zone:hover, .drop-zone.is-dragging { border-color: var(--accent); background: #f8f9ff; }
+.upload-icon, .library-icon { display: grid; width: 48px; height: 48px; margin-bottom: 6px; place-items: center; border-radius: 8px; color: var(--accent); background: var(--accent-soft); }
+.upload-icon svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.drop-zone strong { color: var(--ink); font-size: 1rem; font-weight: 650; }
+.drop-zone > span:not(.upload-icon) { font-size: .875rem; }
+.drop-zone small { margin-top: 6px; color: #98a2b3; font-size: .75rem; }
+.selected-file { min-height: 24px; margin-top: 14px; color: var(--ink-muted); font-size: .875rem; }
+.empty-library { display: grid; min-height: 312px; place-items: center; align-content: center; gap: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); text-align: center; }
+.empty-library .library-icon { margin-bottom: 6px; }
+h2 { font-size: 1.125rem; font-weight: 680; line-height: 1.35; }
+.primary-button { min-height: 40px; margin-top: 12px; padding: 0 16px; border-radius: 6px; color: #fff; background: var(--accent); cursor: pointer; font-size: .875rem; font-weight: 650; }
+.primary-button:hover { background: #3654d7; }
+
+@media (max-width: 1100px) {
+  :root { --sidebar-width: 196px; }
+  .sidebar { padding-right: 12px; padding-left: 12px; }
+  .view { width: min(680px, calc(100% - 64px)); padding-top: 72px; padding-bottom: 72px; }
+}
+
+@media (max-height: 720px) {
+  .sidebar { padding-top: 20px; }
+  .brand { margin-bottom: 24px; }
+  .view { padding-top: 48px; padding-bottom: 48px; }
+  .page-header { margin-bottom: 28px; }
+  .drop-zone, .empty-library { min-height: 240px; }
+}
