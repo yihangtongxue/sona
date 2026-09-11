@@ -1,7 +1,7 @@
 [project]
 name = "sona"
 version = "0.1.0"
-description = "Add your description here"
+description = "Desktop audio workspace with Apple Speech and Whisper model resource management"
 readme = "README.md"
 authors = [
     { name = "YIHANG", email = "leo.morrison.2001@gmail.com" }

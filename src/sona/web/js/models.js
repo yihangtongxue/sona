@@ -1,3 +1,5 @@
+import { formatBytes } from "./format.js";
+
 const list = document.querySelector("#speech-models");
 const template = document.querySelector("#speech-model-template");
 const feedback = document.querySelector("#models-feedback");
@@ -9,18 +11,20 @@ let requestInFlight = false;
 let pollTimer;
 let connected = true;
 let hasLoaded = false;
+let requestQueue = Promise.resolve();
 
 const statusLabels = {
   unchecked: "待确认", starting: "启动中", checking: "检查中",
   preparing: "准备中", downloading: "下载中", verifying: "确认中",
   installed: "已安装", waiting: "等待系统", supported: "未安装",
   unsupported: "不支持", failed: "失败", unknown: "状态未知",
+  locked: "其他实例处理中", paused: "已暂停",
 };
-const terminalStatuses = new Set(["installed", "waiting", "supported", "unsupported", "failed", "unknown"]);
+const terminalStatuses = new Set(["installed", "waiting", "supported", "unsupported", "failed", "unknown", "locked", "paused"]);
 
 export function openModelSettings() {
   // Page navigation reuses session state without interrupting task polling.
-  if (hasLoaded || requestInFlight) return;
+  if ((hasLoaded && connected) || requestInFlight) return;
   if (!window.pywebview?.api) {
     showConnectionError(new Error("正在等待桌面应用连接。"));
     return;
@@ -34,12 +38,23 @@ window.addEventListener("pywebviewready", () => {
 });
 reconnectButton.addEventListener("click", () => requestModels("refresh_models"));
 
-async function requestModels(method, modelId) {
+function requestModels(method, modelId) {
+  const isBackgroundPoll = method === "list_models";
   if (requestInFlight) return;
   clearTimeout(pollTimer);
-  requestInFlight = true;
-  reconnectButton.disabled = true;
-  updateRows();
+  if (!isBackgroundPoll) {
+    requestInFlight = true;
+    reconnectButton.disabled = true;
+    updateRows();
+  }
+  // A user action queues behind an outstanding poll. Only one bridge request
+  // runs at a time, so an old snapshot can never overwrite a newer action.
+  const request = requestQueue.then(() => performRequest(method, modelId, isBackgroundPoll));
+  requestQueue = request.catch(() => {});
+  return request;
+}
+
+async function performRequest(method, modelId, isBackgroundPoll) {
   let succeeded = false;
   try {
     if (!window.pywebview?.api) throw new Error("桌面应用连接尚未就绪。");
@@ -54,10 +69,13 @@ async function requestModels(method, modelId) {
   } catch (error) {
     showConnectionError(error);
   } finally {
-    requestInFlight = false;
-    reconnectButton.disabled = false;
+    if (!isBackgroundPoll) {
+      requestInFlight = false;
+      reconnectButton.disabled = false;
+    }
     updateRows();
-    if (succeeded && models.some((model) => model.active)) {
+    clearTimeout(pollTimer);
+    if (succeeded && !requestInFlight && models.some((model) => model.active)) {
       pollTimer = setTimeout(() => requestModels("list_models"), 600);
     }
   }
@@ -66,13 +84,17 @@ async function requestModels(method, modelId) {
 function getAction(model) {
   if (!connected) return { method: "refresh_model", label: "重新连接" };
   if (model.active) {
+    if (model.cancelling) return { method: "refresh_model", label: "正在暂停" };
+    if (model.action === "delete") return { method: "refresh_model", label: "正在清理" };
     const label = terminalStatuses.has(model.status) ? "保存中" : statusLabels[model.status] ?? "处理中";
-    return { method: "refresh_model", label: model.action === "select" ? "确认使用中" : label };
+    return { method: "refresh_model", label: model.action === "select" ? "正在确认" : label };
   }
   if (model.status === "installed" && !model.selected) {
-    return { method: "select_model", label: "使用" };
+    return { method: "select_model", label: "设为默认" };
   }
-  if (model.status === "supported") return { method: "download_model", label: "下载" };
+  if (["supported", "paused"].includes(model.status)) {
+    return { method: "download_model", label: model.downloaded_bytes > 0 ? "继续下载" : "下载" };
+  }
   if (model.status === "failed" && model.action === "download") {
     return { method: "download_model", label: "重试下载" };
   }
@@ -108,6 +130,19 @@ function updateRows() {
         const action = getAction(current);
         requestModels(action.method, current.id);
       });
+      row.querySelector("[data-model-delete]").addEventListener("click", () => {
+        const current = models.find((item) => item.id === model.id);
+        if (!current || current.active || requestInFlight) return;
+        const description = current.status === "installed" ? "模型及未完成下载" : "本机模型资源及未完成下载";
+        const selectionNote = current.selected ? "成功清理后会取消默认选择。" : "";
+        if (!window.confirm(`确定要清理“${current.name}”吗？${description}将被移除。${selectionNote}`)) return;
+        requestModels("delete_model", current.id);
+      });
+      row.querySelector("[data-model-pause]").addEventListener("click", () => {
+        const current = models.find((item) => item.id === model.id);
+        if (!current?.active || current.cancelling || requestInFlight) return;
+        requestModels("pause_model", current.id);
+      });
       rows.set(model.id, row);
       list.append(row);
     }
@@ -119,26 +154,59 @@ function renderModel(row, model) {
   const find = (selector) => row.querySelector(selector);
   const busy = Boolean(model.active);
   const ready = connected && model.status === "installed" && !busy;
-  row.classList.toggle("is-selected", Boolean(model.selected));
+  const showProgress = connected && busy && model.action === "download" && !terminalStatuses.has(model.status);
   row.setAttribute("aria-label", `${model.name}${model.selected ? "，已选择" : ""}`);
   find("[data-model-name]").textContent = model.name;
-  find("[data-model-detail]").textContent = model.detail;
+  const description = find("[data-model-description]");
+  description.textContent = model.description ?? "";
+  description.hidden = !model.description;
+  const detail = find("[data-model-detail]");
+  detail.textContent = model.cancelling
+    ? "正在暂停；等待当前网络读取或文件操作结束。" : model.detail;
+  // Routine state already appears in the badge/progress. Keep explanations for
+  // failures, availability restrictions and unfinished resources visible.
+  detail.hidden = !connected || !(model.cancelling || model.error
+    || ["unknown", "unsupported", "failed", "locked", "waiting", "paused"].includes(model.status)
+    || (model.status === "supported" && model.has_files));
+  const size = find("[data-model-size]");
+  size.hidden = model.storage !== "managed" || showProgress
+    || !(model.total_bytes > 0 || model.downloaded_bytes > 0);
+  const total = model.total_bytes > 0 ? formatBytes(model.total_bytes) : "总大小待确认";
+  size.textContent = model.status === "installed" ? `文件大小：${total}`
+    : model.downloaded_bytes > 0 ? `已下载 ${formatBytes(model.downloaded_bytes)} / ${total}`
+    : model.total_bytes > 0 ? `下载大小：${total}` : "";
+  const action = getAction(model);
   const badge = find("[data-model-status]");
   badge.textContent = !connected ? "连接异常"
-    : ready && model.selected ? "使用中" : statusLabels[model.status] ?? "状态未知";
-  badge.hidden = connected && busy;
-  badge.classList.toggle("is-unavailable", !connected || ["failed", "unsupported", "unknown"].includes(model.status));
-  const action = getAction(model);
+    : busy ? action.label
+    : ready && model.selected ? "默认模型" : statusLabels[model.status] ?? "状态未知";
+  badge.classList.toggle("is-muted", connected && !busy
+    && ["unchecked", "supported", "unsupported", "paused"].includes(model.status));
+  badge.classList.toggle("is-unavailable", !connected || ["failed", "unknown"].includes(model.status));
   const button = find("[data-model-action]");
   button.textContent = action.label;
+  button.hidden = busy;
   const selectionPending = action.method === "select_model"
     && models.some((item) => item.active && item.action === "select");
   button.disabled = busy || requestInFlight || selectionPending;
   button.setAttribute("aria-busy", String(busy));
   button.setAttribute("aria-label", `${action.label}：${model.name}`);
 
+  const deleteButton = find("[data-model-delete]");
+  const canDelete = model.storage === "managed" && model.status !== "locked"
+    && (model.has_files || model.status === "installed") && !busy;
+  deleteButton.hidden = !canDelete;
+  deleteButton.disabled = !canDelete || requestInFlight || !connected;
+  deleteButton.textContent = model.status === "installed" ? "删除" : "清理文件";
+  deleteButton.setAttribute("aria-label", `${deleteButton.textContent}：${model.name}`);
+
+  const pauseButton = find("[data-model-pause]");
+  pauseButton.hidden = !(busy && model.storage === "managed" && model.action === "download"
+    && !terminalStatuses.has(model.status));
+  pauseButton.disabled = Boolean(model.cancelling) || requestInFlight || !connected;
+  pauseButton.setAttribute("aria-label", `暂停下载：${model.name}`);
+
   const progressRegion = find("[data-model-progress-region]");
-  const showProgress = connected && busy && model.action === "download" && !terminalStatuses.has(model.status);
   progressRegion.hidden = !showProgress;
   const progress = find("[data-model-progress]");
   const progressValue = find("[data-model-progress-value]");
@@ -148,14 +216,18 @@ function renderModel(row, model) {
     progressValue.textContent = "";
     elapsed.textContent = "";
   } else {
+    const bytes = model.downloaded_bytes > 0
+      ? `${formatBytes(model.downloaded_bytes)}${model.total_bytes > 0 ? ` / ${total}` : ""}` : "";
+    let progressLabel;
     if (typeof model.progress === "number" && Number.isFinite(model.progress)) {
-      progress.value = model.progress;
-      progressValue.textContent = `系统进度 ${Math.floor(model.progress * 100)}%`;
+      progress.value = Math.max(0, Math.min(1, model.progress));
+      progressLabel = `${Math.floor(progress.value * 100)}%`;
     } else {
       progress.removeAttribute("value");
-      progressValue.textContent = model.status === "downloading"
-        ? "等待系统提供进度" : statusLabels[model.status] ?? "处理中";
+      progressLabel = model.status === "downloading"
+        ? "正在下载" : statusLabels[model.status] ?? "处理中";
     }
+    progressValue.textContent = [progressLabel, bytes].filter(Boolean).join(" · ");
     elapsed.textContent = typeof model.elapsed === "number"
       ? `已用时 ${Math.floor(model.elapsed / 60)}分${model.elapsed % 60}秒` : "";
   }

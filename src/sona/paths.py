@@ -15,6 +15,14 @@ class AppPaths:
     def database(self) -> Path:
         return self.data_dir / "sona.sqlite3"
 
+    @property
+    def models_dir(self) -> Path:
+        return self.data_dir / "models"
+
+    @property
+    def downloads_dir(self) -> Path:
+        return self.data_dir / "downloads"
+
 
 def get_app_paths() -> AppPaths:
     project_root = Path(__file__).resolve().parents[2]

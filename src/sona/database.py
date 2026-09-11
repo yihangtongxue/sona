@@ -8,7 +8,7 @@ from pathlib import Path
 from .models import ModelDefinition, ModelEvent
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MIGRATIONS = {
     1: (
         """CREATE TABLE models (
@@ -33,6 +33,11 @@ MIGRATIONS = {
             model_id TEXT NOT NULL REFERENCES models(id) ON DELETE CASCADE,
             selected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
+    ),
+    2: (
+        "ALTER TABLE model_installations ADD COLUMN downloaded_bytes INTEGER",
+        "ALTER TABLE model_installations ADD COLUMN total_bytes INTEGER",
+        "ALTER TABLE model_installations ADD COLUMN artifact_version TEXT",
     ),
 }
 
@@ -81,7 +86,8 @@ class ModelRepository:
         with self._connection() as connection:
             rows = connection.execute(
                 """SELECT m.*, i.status AS installation_status, i.resource_path,
-                          i.checked_at, i.last_error,
+                          i.checked_at, i.last_error, i.downloaded_bytes, i.total_bytes,
+                          i.artifact_version,
                           EXISTS(SELECT 1 FROM model_selections s
                                  WHERE s.kind=m.kind AND s.model_id=m.id) AS selected
                    FROM models m JOIN model_installations i ON i.model_id=m.id
@@ -89,16 +95,30 @@ class ModelRepository:
             ).fetchall()
         return [dict(row, selected=bool(row["selected"])) for row in rows]
 
-    def save_result(self, model: ModelDefinition, event: ModelEvent, *, select: bool) -> None:
+    def save_result(
+        self, model: ModelDefinition, event: ModelEvent, *, select: bool,
+        clear_selection: bool = False,
+    ) -> None:
+        if clear_selection and (select or event.status != "supported"):
+            raise ValueError("仅可在确认删除成功后清除默认模型。")
         installation_status = {
             "installed": "installed", "supported": "not_installed",
-            "waiting": "downloading", "unsupported": "unsupported",
+            "waiting": "downloading", "preparing": "downloading",
+            "downloading": "downloading", "verifying": "downloading",
+            "unsupported": "unsupported",
+            "paused": "not_installed",
         }.get(event.status, "unknown")
         with self._connection() as connection:
             connection.execute(
-                """UPDATE model_installations SET status=?, resource_path=?,
-                       checked_at=CURRENT_TIMESTAMP, last_error=? WHERE model_id=?""",
-                (installation_status, event.resource_path, event.error, model.id),
+                """UPDATE model_installations SET status=?,
+                       resource_path=CASE WHEN ? = 'installed' THEN ? ELSE NULL END,
+                       checked_at=CURRENT_TIMESTAMP, last_error=?,
+                       downloaded_bytes=COALESCE(?, downloaded_bytes),
+                       total_bytes=COALESCE(?, total_bytes),
+                       artifact_version=COALESCE(?, artifact_version)
+                   WHERE model_id=?""",
+                (installation_status, event.status, event.resource_path, event.error,
+                 event.downloaded_bytes, event.total_bytes, event.artifact_version, model.id),
             )
             if select:
                 if event.status != "installed":
@@ -107,5 +127,10 @@ class ModelRepository:
                     """INSERT INTO model_selections (kind, model_id) VALUES (?, ?)
                        ON CONFLICT(kind) DO UPDATE SET model_id=excluded.model_id,
                            selected_at=CURRENT_TIMESTAMP""",
+                    (model.kind, model.id),
+                )
+            if clear_selection:
+                connection.execute(
+                    "DELETE FROM model_selections WHERE kind=? AND model_id=?",
                     (model.kind, model.id),
                 )

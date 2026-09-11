@@ -11,10 +11,10 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from .models import ModelDefinition, ModelEvent
+from ..models import ModelDefinition, ModelEvent
 
 
-HELPER_SOURCE = Path(__file__).with_name("native") / "speech_asset_manager.swift"
+HELPER_SOURCE = Path(__file__).resolve().parents[1] / "native" / "speech_asset_manager.swift"
 EVENT_STATUSES = {
     "checking", "preparing", "downloading", "verifying", "installed",
     "waiting", "supported", "unsupported", "failed", "unknown",
@@ -105,6 +105,9 @@ class AppleSpeechProvider:
             self._closed = True
             for process in self._processes:
                 _terminate(process)
+
+    def cancel(self, model_id: str) -> None:
+        raise ValueError("Apple 资源由系统管理，无法在应用内暂停。")
 
 
 def _terminate(process: subprocess.Popen[str]) -> None:
