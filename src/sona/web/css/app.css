@@ -38,10 +38,7 @@ body { overflow: hidden; font-family: Inter, -apple-system, BlinkMacSystemFont, 
 .content::-webkit-scrollbar-thumb:hover { background-color: #98a2b3; }
 .view { width: 100%; max-width: 1120px; margin: 0 auto; padding: clamp(48px, 7vw, 96px) 0; }
 .settings-view { padding-top: 80px; }
-.page-header { max-width: 520px; margin-bottom: 40px; }
-.eyebrow { margin-bottom: 12px; color: var(--accent); font-size: .8125rem; font-weight: 700; }
 h1 { margin-bottom: 12px; font-size: 2rem; font-weight: 720; line-height: 1.2; }
-.page-header > p:last-child, .empty-library p { color: var(--ink-muted); font-size: 1rem; line-height: 1.65; }
 .drop-zone { display: flex; width: 100%; min-height: 312px; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 32px; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--ink-muted); background: var(--surface); cursor: pointer; text-align: center; transition: border-color 150ms ease, background-color 150ms ease; }
 .drop-zone:hover, .drop-zone.is-dragging { border-color: var(--accent); background: #f8f9ff; }
 .upload-icon, .library-icon { display: grid; width: 48px; height: 48px; margin-bottom: 6px; place-items: center; border-radius: 8px; color: var(--accent); background: var(--accent-soft); }
@@ -52,11 +49,25 @@ h1 { margin-bottom: 12px; font-size: 2rem; font-weight: 720; line-height: 1.2; }
 .file-selection { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
 .selected-file { flex: 1 1 240px; min-width: 0; min-height: 24px; overflow-wrap: anywhere; color: var(--ink-muted); font-size: .875rem; line-height: 1.6; }
 .file-feedback { margin-top: 8px; color: #b42318; font-size: .875rem; line-height: 1.5; }
-.empty-library { display: grid; min-height: 312px; place-items: center; align-content: center; gap: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); text-align: center; }
-.empty-library .library-icon { margin-bottom: 6px; }
+.drop-zone:disabled { cursor: progress; }
+.audio-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.audio-table { width: 100%; min-width: 600px; border-collapse: collapse; table-layout: fixed; text-align: left; font-size: .8125rem; }
+.audio-table th { padding: 14px 16px; background: #fafbfc; color: var(--ink-muted); font-weight: 600; }
+.audio-table th:first-child { width: auto; }
+.audio-table th:nth-child(2) { width: 96px; }
+.audio-table th:nth-child(3) { width: 156px; }
+.audio-table th:last-child { width: 144px; }
+.audio-table td { padding: 16px; border-top: 1px solid var(--line); vertical-align: middle; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.audio-name { overflow-wrap: anywhere; }
+.audio-name strong { display: block; color: var(--ink); font-size: .875rem; font-weight: 600; }
+.audio-name small { display: block; margin-top: 5px; color: #b42318; }
+.audio-row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.audio-operations { text-align: right; }
+.audio-delete { color: #b42318; }
+.audio-table .audio-empty { padding: 32px 16px; text-align: center; }
+.audio-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 14px; color: #b42318; font-size: .8125rem; }
+.audio-feedback p { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 h2 { font-size: 1.125rem; font-weight: 680; line-height: 1.35; }
-.primary-button { min-height: 40px; margin-top: 12px; padding: 0 16px; border-radius: 6px; color: #fff; background: var(--accent); cursor: pointer; font-size: .875rem; font-weight: 650; }
-.primary-button:hover { background: #3654d7; }
 .settings-groups { display: grid; gap: 16px; }
 .settings-group { padding: clamp(20px, 2.5vw, 28px); border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .settings-group h2 { font-size: 1.25rem; }
@@ -124,15 +135,13 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
   .nav-item svg { flex-shrink: 0; }
   .content { padding-right: 16px; padding-left: 16px; }
   .group-heading, .models-feedback { flex-wrap: wrap; }
-  .empty-library { padding: 20px; }
 }
 
 @media (max-height: 720px) {
   .sidebar { padding-top: 20px; }
   .brand { margin-bottom: 24px; }
   .view { padding-top: 48px; padding-bottom: 48px; }
-  .page-header { margin-bottom: 28px; }
-  .drop-zone, .empty-library { min-height: 240px; }
+  .drop-zone { min-height: 240px; }
 }
 
 @media (max-width: 520px) {

@@ -23,6 +23,10 @@ class AppPaths:
     def downloads_dir(self) -> Path:
         return self.data_dir / "downloads"
 
+    @property
+    def audio_dir(self) -> Path:
+        return self.data_dir / "audio"
+
 
 def get_app_paths() -> AppPaths:
     project_root = Path(__file__).resolve().parents[2]

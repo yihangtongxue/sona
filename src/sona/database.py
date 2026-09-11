@@ -8,7 +8,7 @@ from pathlib import Path
 from .models import ModelDefinition, ModelEvent
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MIGRATIONS = {
     1: (
         """CREATE TABLE models (
@@ -38,6 +38,15 @@ MIGRATIONS = {
         "ALTER TABLE model_installations ADD COLUMN downloaded_bytes INTEGER",
         "ALTER TABLE model_installations ADD COLUMN total_bytes INTEGER",
         "ALTER TABLE model_installations ADD COLUMN artifact_version TEXT",
+    ),
+    3: (
+        """CREATE TABLE audio_files (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            suffix TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+            imported_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        )""",
     ),
 }
 

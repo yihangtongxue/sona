@@ -28,12 +28,7 @@
         </nav>
       </aside>
       <main class="content">
-        <section class="view" data-panel="upload" aria-labelledby="upload-title">
-          <header class="page-header">
-            <p class="eyebrow">音频工作区</p>
-            <h1 id="upload-title">选择音频</h1>
-            <p>音频转写功能开发中。你可以先选择文件，并在模型设置中准备语音模型。</p>
-          </header>
+        <section class="view" data-panel="upload" aria-label="选择音频">
           <input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.aif,.aiff,.wma" hidden />
           <button class="drop-zone" type="button" id="drop-zone" data-upload-trigger aria-describedby="audio-formats">
             <span class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" /></svg></span>
@@ -47,17 +42,16 @@
           </div>
           <p class="file-feedback" id="file-feedback" role="status"></p>
         </section>
-        <section class="view" data-panel="library" aria-labelledby="library-title" hidden>
-          <header class="page-header">
-            <p class="eyebrow">音频资料</p>
-            <h1 id="library-title">我的音频</h1>
-            <p>音频资料库开发中，当前版本尚不保存音频和转写记录。</p>
-          </header>
-          <div class="empty-library">
-            <span class="library-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H18a1 1 0 0 1 1 1v14.5A2.5 2.5 0 0 0 16.5 16H7.5A2.5 2.5 0 0 0 5 18.5v-13Z" /><path d="M8.5 7.5h7M8.5 11h5" /></svg></span>
-            <h2>资料库尚未开放</h2>
-            <p>你可以先选择音频文件，所选文件仅在本次会话保留。</p>
-            <button class="primary-button" type="button" data-upload-trigger>选择音频</button>
+        <section class="view" data-panel="library" aria-label="我的音频" hidden>
+          <div class="audio-table-wrap">
+            <table class="audio-table" aria-label="历史音频">
+              <thead><tr><th scope="col">文件名</th><th scope="col">大小</th><th scope="col">导入时间</th><th scope="col" class="audio-operations">操作</th></tr></thead>
+              <tbody id="audio-list"><tr><td colspan="4" class="audio-empty">正在读取…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="audio-feedback" id="audio-feedback" hidden>
+            <p id="audio-feedback-message" role="status"></p>
+            <button class="secondary-button" type="button" id="audio-retry">重新加载</button>
           </div>
         </section>
         <section class="view settings-view" data-panel="settings" aria-labelledby="settings-title" hidden>

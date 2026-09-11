@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import errno
 import hashlib
 import http.client
 import json
@@ -16,6 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from ..models import ModelDefinition, ModelEvent
+from ..file_lock import FileLocked, exclusive_file_lock
 
 
 MANIFEST_NAME = "manifest.json"
@@ -287,38 +287,11 @@ class WhisperProvider:
     @contextmanager
     def _model_lock(self, model: ModelDefinition) -> Iterator[None]:
         lock = self._downloads_dir / f"{model.id}{LOCK_SUFFIX}"
-        # Never unlink this file: waiters must all lock the same inode. The OS
-        # releases the lock on close or process death, including forced exits.
-        with lock.open("a+b") as output:
-            if os.fstat(output.fileno()).st_size == 0:
-                output.write(b"\0")
-                output.flush()
-            output.seek(0)
-            if os.name == "nt":
-                import msvcrt
-
-                try:
-                    msvcrt.locking(output.fileno(), msvcrt.LK_NBLCK, 1)
-                except OSError as error:
-                    if error.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
-                        raise _ModelLocked() from error
-                    raise
-                try:
-                    yield
-                finally:
-                    output.seek(0)
-                    msvcrt.locking(output.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-
-                try:
-                    fcntl.flock(output.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError as error:
-                    raise _ModelLocked() from error
-                try:
-                    yield
-                finally:
-                    fcntl.flock(output.fileno(), fcntl.LOCK_UN)
+        try:
+            with exclusive_file_lock(lock):
+                yield
+        except FileLocked as error:
+            raise _ModelLocked() from error
 
 
 class _ModelLocked(Exception):
