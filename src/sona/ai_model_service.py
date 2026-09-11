@@ -289,36 +289,81 @@ class AIModelService:
             kwargs = {
                 "model": self._litellm_model(profile),
                 "messages": [{"role": "user", "content": "Reply with OK."}],
-                "max_tokens": 64,
-                "timeout": 15,
                 "num_retries": 0,
                 "api_base": self._api_base(profile),
+                **self._test_options(profile),
             }
             api_key = self._read_secret(profile.get("api_key_ref"))
             if not api_key:
                 raise CredentialError("未找到已保存的 API Key，请编辑模型并重新填写。")
             kwargs["api_key"] = api_key
-            self._validate_test_response(completion(**kwargs))
+            response = completion(**kwargs)
+            self._log_test_response(identifier, response, kwargs["max_tokens"])
+            self._validate_test_response(response)
         except Exception as error:
             message = self._connection_error(error)
-            logger.warning("AI 模型连接测试失败 model=%s type=%s", identifier, type(error).__name__)
+            logger.warning("AI 模型连接测试失败 model=%s type=%s reason=%s",
+                           identifier, type(error).__name__, message)
             self.repository.save_test_result(identifier, success=False, error=message)
         else:
             self.repository.save_test_result(identifier, success=True)
         return self.list_models()
 
+    def _test_options(self, profile: dict[str, object]) -> dict[str, object]:
+        # A short final answer can still require a reasoning budget.
+        options: dict[str, object] = {"max_tokens": 1024, "timeout": 30}
+        provider, _, model = self._litellm_model(profile).partition("/")
+        if provider == "zai" and model.lower() in {"glm-5.3", "glm-5.3-flash"}:
+            # Official GLM-5.3 docs: thinking cannot be disabled; low is supported.
+            # extra_body passes through parameters absent from LiteLLM's ZAI allowlist.
+            options.update({
+                "max_tokens": 4096,
+                "timeout": 45,
+                "extra_body": {"thinking": {"type": "enabled"}, "reasoning_effort": "low"},
+            })
+        return options
+
     @staticmethod
-    def _validate_test_response(response: object) -> None:
+    def _test_finish_reason(choice: object) -> str:
+        fields = getattr(choice, "provider_specific_fields", None)
+        native = fields.get("native_finish_reason") if isinstance(fields, dict) else None
+        # Keep vendor-supplied text out of logs; LiteLLM can normalize native errors.
+        allowed = {"stop", "length", "tool_calls", "function_call", "content_filter",
+                   "sensitive", "network_error", "model_context_window_exceeded"}
+        for reason in (native, getattr(choice, "finish_reason", None)):
+            if isinstance(reason, str) and reason in allowed:
+                return reason
+        return "unknown"
+
+    def _log_test_response(self, identifier: str, response: object, max_tokens: object) -> None:
+        choices = getattr(response, "choices", None)
+        choice = choices[0] if choices else None
+        message = getattr(choice, "message", None)
+        content = getattr(message, "content", None)
+        reasoning = getattr(message, "reasoning_content", None)
+        logger.info(
+            "AI 模型测试响应 model=%s finish_reason=%s text_chars=%d reasoning_chars=%d max_tokens=%s",
+            identifier, self._test_finish_reason(choice),
+            len(content) if isinstance(content, str) else 0,
+            len(reasoning) if isinstance(reasoning, str) else 0, max_tokens,
+        )
+
+    def _validate_test_response(self, response: object) -> None:
         choices = getattr(response, "choices", None)
         if not choices:
             raise ModelTestError("接口未返回有效回复，请检查模型标识和 API 地址。")
         choice = choices[0]
         content = getattr(getattr(choice, "message", None), "content", None)
-        if getattr(choice, "finish_reason", None) == "content_filter":
+        finish_reason = self._test_finish_reason(choice)
+        if finish_reason in {"content_filter", "sensitive"}:
             raise ModelTestError("测试回复被供应商拦截，请检查模型权限或内容限制。")
+        if finish_reason == "network_error":
+            raise ModelTestError("供应商生成回复时发生异常，请稍后重试。")
+        if finish_reason == "model_context_window_exceeded":
+            raise ModelTestError("测试请求超出模型上下文限制，请核对模型配置。")
+        if finish_reason == "length":
+            raise ModelTestError("单次测试输出达到上限，未取得完整回复；这不表示套餐额度耗尽。")
         if not isinstance(content, str) or not content.strip():
-            if getattr(choice, "finish_reason", None) == "length":
-                raise ModelTestError("测试输出额度已用尽，但未收到正文，暂无法确认模型可用。")
             raise ModelTestError("接口未返回有效文本，暂无法确认模型可用。")
 
     def _profile(

@@ -164,7 +164,11 @@ class AIModelManagementTests(unittest.TestCase):
             (self.response(None), "failed"),
             (self.response("   "), "failed"),
             (self.response(None, "length"), "failed"),
+            (self.response("O", "length"), "failed"),
             (self.response("blocked", "content_filter"), "failed"),
+            (self.response("blocked", "sensitive"), "failed"),
+            (self.response("partial", "network_error"), "failed"),
+            (self.response("partial", "model_context_window_exceeded"), "failed"),
         ):
             with self.subTest(response=response):
                 fake_litellm.completion = Mock(return_value=response)
@@ -174,6 +178,86 @@ class AIModelManagementTests(unittest.TestCase):
                 self.assertEqual(row["status"], expected)
                 self.assertEqual(bool(row["last_error"]), expected == "failed")
                 self.assertFalse(self.service.list_models()[0]["selected"])
+
+    def test_glm53_uses_documented_low_reasoning_without_disabling_thinking(self):
+        for provider in ("zhipu", "zhipu-coding"):
+            for model in ("glm-5.3-flash", "GLM-5.3"):
+                with self.subTest(provider=provider, model=model):
+                    identifier = self.add_model()
+                    self.update_model(identifier, provider=provider, model_name=model)
+                    fake_litellm = ModuleType("litellm")
+                    fake_litellm.completion = Mock(return_value=self.response("OK"))
+                    with patch.dict("sys.modules", {"litellm": fake_litellm}):
+                        self.service.test_model(identifier)
+                    fake_litellm.completion.assert_called_once()
+                    kwargs = fake_litellm.completion.call_args.kwargs
+                    self.assertEqual(kwargs["model"], f"zai/{model}")
+                    self.assertEqual(kwargs["max_tokens"], 4096)
+                    self.assertEqual(kwargs["timeout"], 45)
+                    self.assertEqual(kwargs["num_retries"], 0)
+                    self.assertEqual(kwargs["extra_body"], {
+                        "thinking": {"type": "enabled"}, "reasoning_effort": "low",
+                    })
+                    expected_path = "/api/coding/paas/v4" if provider == "zhipu-coding" else "/api/paas/v4"
+                    self.assertEqual(kwargs["api_base"], f"https://open.bigmodel.cn{expected_path}")
+                    self.assertEqual(self.record(identifier)["status"], "ready")
+
+    def test_vendor_options_do_not_leak_to_other_or_unknown_models(self):
+        for provider, model, config in (
+            ("openai", "test-model", {}),
+            ("anthropic", "test-model", {}),
+            ("google", "test-model", {}),
+            ("openai-compatible", "glm-5.3-flash", {}),
+            ("zhipu", "glm-4.7", {}),
+            ("zhipu-coding", "unknown-model", {}),
+            ("zhipu-coding", "glm-5.3-flash", {"litellm_model": "openai/other-model"}),
+        ):
+            with self.subTest(provider=provider, model=model, config=config):
+                options = self.service._test_options({
+                    "provider": provider, "model_name": model, "config": config,
+                })
+                self.assertEqual(options, {"max_tokens": 1024, "timeout": 30})
+
+    def test_native_error_survives_litellm_finish_reason_normalization(self):
+        identifier = self.add_model()
+        response = self.response("partial", "stop")
+        response.choices[0].provider_specific_fields = {"native_finish_reason": "network_error"}
+        fake_litellm = ModuleType("litellm")
+        fake_litellm.completion = Mock(return_value=response)
+        with patch.dict("sys.modules", {"litellm": fake_litellm}):
+            self.service.test_model(identifier)
+        self.assertEqual(self.record(identifier)["status"], "failed")
+        self.assertIn("供应商生成回复时发生异常", self.record(identifier)["last_error"])
+
+    def test_truncated_reasoning_is_diagnosable_without_logging_secrets(self):
+        identifier = self.add_model()
+        response = self.response(None, "length")
+        response.choices[0].message.reasoning_content = "private-reasoning"
+        fake_litellm = ModuleType("litellm")
+        fake_litellm.completion = Mock(return_value=response)
+        with patch.dict("sys.modules", {"litellm": fake_litellm}):
+            with self.assertLogs("sona.ai_model_service", level="INFO") as logs:
+                self.service.test_model(identifier)
+        fake_litellm.completion.assert_called_once()
+        text = "\n".join(logs.output)
+        self.assertIn("finish_reason=length", text)
+        self.assertIn("text_chars=0", text)
+        self.assertIn("reasoning_chars=17", text)
+        self.assertIn("这不表示套餐额度耗尽", text)
+        self.assertNotIn("private-reasoning", text)
+        self.assertNotIn("fake-key", text)
+        self.assertEqual(self.record(identifier)["status"], "failed")
+
+    def test_other_provider_normalized_length_remains_a_failure(self):
+        identifier = self.add_model()
+        response = self.response("partial", "length")
+        response.choices[0].provider_specific_fields = {"native_finish_reason": "max_tokens"}
+        fake_litellm = ModuleType("litellm")
+        fake_litellm.completion = Mock(return_value=response)
+        with patch.dict("sys.modules", {"litellm": fake_litellm}):
+            self.service.test_model(identifier)
+        self.assertEqual(self.record(identifier)["status"], "failed")
+        self.assertIn("单次测试输出达到上限", self.record(identifier)["last_error"])
 
     def test_failed_retest_does_not_silently_change_default(self):
         identifier = self.add_model()
