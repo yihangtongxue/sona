@@ -5,6 +5,14 @@ def main() -> None:
     import multiprocessing
 
     multiprocessing.freeze_support()
+    import sys
+
+    # The trusted updater copy must never create a GUI or start background jobs.
+    if len(sys.argv) == 3 and sys.argv[1] == "--sona-update-helper":
+        from .updates.macos import apply_update
+
+        apply_update(sys.argv[2])
+        return
     import logging
 
     from .logging_config import configure_logging

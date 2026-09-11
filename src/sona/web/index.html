@@ -136,6 +136,32 @@
                 <button class="secondary-button" id="ai-model-reconnect" type="button">重新加载</button>
               </div>
             </section>
+            <section class="settings-group" aria-labelledby="about-title">
+              <div class="group-heading"><h2 id="about-title">关于</h2></div>
+              <div class="about-row">
+                <div class="about-info">
+                  <strong>Sona <span id="app-version"></span></strong>
+                  <p class="about-description">把声音整理成文字，让内容更易读。</p>
+                </div>
+                <div class="about-actions">
+                  <button class="secondary-button" id="check-update" type="button">检查更新</button>
+                  <button class="secondary-button" id="download-update" type="button" hidden>下载更新</button>
+                  <button class="secondary-button" id="install-update" type="button" hidden>重启更新</button>
+                  <button class="secondary-button" id="cancel-update" type="button" hidden>取消下载</button>
+                </div>
+                <p class="update-message" id="update-message" role="status" hidden></p>
+              </div>
+              <progress id="update-progress" max="1" aria-label="更新下载进度" hidden></progress>
+              <details class="update-notes" id="update-notes" hidden>
+                <summary>更新说明</summary>
+                <p id="update-notes-content"></p>
+              </details>
+              <div class="about-contact" aria-label="作者与联系方式">
+                <span>作者：一航同学YIHANG</span>
+                <a href="https://maxcosmos.top" target="_blank" rel="noopener noreferrer" aria-label="访问作者主页 maxcosmos.top">maxcosmos.top</a>
+                <a href="mailto:leo.morrison.2001@gmail.com" target="_blank" rel="noopener noreferrer" aria-label="联系作者 leo.morrison.2001@gmail.com">leo.morrison.2001@gmail.com</a>
+              </div>
+            </section>
           </div>
         </section>
       </main>

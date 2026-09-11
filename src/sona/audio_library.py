@@ -281,3 +281,7 @@ class AudioLibrary:
             self._closed = True
             if self._session:
                 self.abort_import(self._session["id"])
+
+    def is_importing(self) -> bool:
+        with self._mutex:
+            return self._session is not None

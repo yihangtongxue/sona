@@ -3,6 +3,7 @@ import multiprocessing
 import logging
 import platform
 from pathlib import Path
+from contextlib import nullcontext
 
 import webview
 
@@ -19,13 +20,26 @@ from .paths import get_app_paths
 from .providers.apple_speech import AppleSpeechProvider
 from .providers.whisper_bundle import WhisperBundleProvider
 from .transcription.service import TranscriptionService
+from .activity import ActivityGate
+from .file_lock import FileLocked, exclusive_file_lock
+from .updates.service import UpdateService
 
 
 def main() -> None:
     multiprocessing.freeze_support()
     configure_logging()
-    logger = logging.getLogger(__name__)
     paths = get_app_paths()
+    paths.data_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        guard = exclusive_file_lock(paths.data_dir / '.application.lock') if getattr(sys, 'frozen', False) else nullcontext()
+        with guard:
+            _run_app(paths)
+    except FileLocked:
+        logging.getLogger(__name__).info('应用已打开或正在更新，请稍后重试。')
+
+
+def _run_app(paths) -> None:
+    logger = logging.getLogger(__name__)
     logger.info('应用启动 platform=%s arch=%s python=%s environment=%s engine=%s data_dir=%s',
                 sys.platform, platform.machine(), platform.python_version(), paths.environment,
                 transcription_engine(), paths.data_dir)
@@ -39,17 +53,24 @@ def main() -> None:
     }, BUILTIN_MODELS)
     ai_model_service = AIModelService(paths.database)
     acceleration = AccelerationService(paths)
+    activity = ActivityGate()
     transcription = TranscriptionService(paths, whisper_provider, BUILTIN_MODELS, acceleration,
-                                         apple_provider=apple_provider, audio_library=audio_library)
-    manuscripts = ManuscriptService(paths.database, ai_model_service)
+                                         apple_provider=apple_provider, audio_library=audio_library, activity=activity)
+    manuscripts = ManuscriptService(paths.database, ai_model_service, activity=activity)
+    updates = UpdateService(paths, activity, other_busy=lambda: audio_library.is_importing()
+                            or any(record.get('active') for record in model_service.list_models()))
     web_root = Path(__file__).with_name("web")
-    icon_path = Path(__file__).resolve().parents[2] / "assets" / "Sona.icns"
+    icon_path = (Path(__file__).with_name("assets") / "Sona.icns" if getattr(sys, "frozen", False)
+                 else Path(__file__).resolve().parents[2] / "assets" / "Sona.icns")
     try:
-        webview.create_window(
+        window = webview.create_window(
             "Sona", str(web_root / "index.html"),
             width=960, height=640, min_size=(720, 480),
-            js_api=AppApi(model_service, audio_library, transcription, acceleration, ai_model_service, manuscripts),
+            js_api=AppApi(model_service, audio_library, transcription, acceleration, ai_model_service,
+                          manuscripts, updates, activity),
         )
+        updates.bind_window(window.destroy)
+        updates.start_automatic_checks()
         # pywebview's Windows backend requires an .ico file; passing the macOS
         # .icns asset makes System.Drawing fail before the window is shown.
         start_options: dict[str, object] = {"http_server": True}
@@ -58,6 +79,7 @@ def main() -> None:
         webview.start(**start_options)
     finally:
         logger.info('应用关闭，正在停止后台任务')
+        updates.close()
         manuscripts.close()
         try:
             transcription.close()

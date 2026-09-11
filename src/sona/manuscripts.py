@@ -8,7 +8,7 @@ import re
 import sqlite3
 import threading
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from .ai_model_service import AIModelService, CredentialError, ModelTestError
@@ -196,9 +196,10 @@ class ManuscriptRepository:
 
 
 class ManuscriptService:
-    def __init__(self, database: Path, ai_models: AIModelService, *, start_worker: bool = True):
+    def __init__(self, database: Path, ai_models: AIModelService, *, start_worker: bool = True, activity=None):
         self.repository = ManuscriptRepository(database)
         self._ai_models = ai_models
+        self._activity = activity
         self._lock_path = database.parent / ".manuscripts.lock"
         self._stop = threading.Event()
         self._thread = None
@@ -218,11 +219,12 @@ class ManuscriptService:
                 with exclusive_file_lock(self._lock_path):
                     self.repository.recover()
                     while not self._stop.is_set():
-                        job = self.repository.claim()
+                        with (self._activity.operation(background=True) if self._activity else nullcontext(True)) as allowed:
+                            job = self.repository.claim() if allowed else None
+                            if job is not None:
+                                self._process(job)
                         if job is None:
                             self._stop.wait(1)
-                        else:
-                            self._process(job)
             except FileLocked:
                 self._stop.wait(1)
             except Exception:

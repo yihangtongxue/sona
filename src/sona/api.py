@@ -6,6 +6,7 @@ from inspect import signature
 from .audio_library import AudioLibrary
 from .ai_model_service import AIModelService
 from .model_service import ModelService
+from .activity import ActivityGate
 
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,8 @@ def log_api_call(function):
         if not quiet:
             logger.info('调用 %s ref=%s', method, reference)
         try:
-            result = function(self, *args, **kwargs)
+            with self._activity.operation():
+                result = function(self, *args, **kwargs)
         except Exception:
             logger.exception('调用失败 %s ref=%s elapsed=%.2fs', method, reference, time.monotonic() - started)
             raise
@@ -42,13 +44,30 @@ class AppApi:
 
     def __init__(self, model_service: ModelService, audio_library: AudioLibrary, transcription,
                  acceleration=None, ai_model_service: AIModelService | None = None,
-                 manuscripts=None) -> None:
+                 manuscripts=None, updates=None, activity=None) -> None:
         self._model_service = model_service
         self._audio_library = audio_library
         self._transcription = transcription
         self._acceleration = acceleration
         self._ai_models = ai_model_service
         self._manuscripts = manuscripts
+        self._updates = updates
+        self._activity = activity or ActivityGate()
+
+    def update_status(self) -> dict:
+        return self._updates.status()
+
+    def check_update(self) -> dict:
+        return self._updates.check()
+
+    def download_update(self) -> dict:
+        return self._updates.download()
+
+    def cancel_update_download(self) -> dict:
+        return self._updates.cancel()
+
+    def install_update(self) -> dict:
+        return self._updates.install()
 
     @log_api_call
     def optimize_transcription(self, identifier: str) -> str:

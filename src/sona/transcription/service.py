@@ -23,12 +23,13 @@ logger = logging.getLogger(__name__)
 
 
 class TranscriptionService:
-    def __init__(self, paths, provider, models, acceleration=None, *, apple_provider=None, audio_library=None):
+    def __init__(self, paths, provider, models, acceleration=None, *, apple_provider=None, audio_library=None, activity=None):
         self.repository = TaskRepository(paths.database)
         self._paths = paths
         self._providers = {'whisper': provider, 'apple-speech': apple_provider}
         self._acceleration = acceleration
         self._audio_library = audio_library
+        self._activity = activity
         self._models = {model.id: model for model in models if model.can_transcribe}
         self._closed = threading.Event()
         self._context = multiprocessing.get_context('spawn')
@@ -50,7 +51,10 @@ class TranscriptionService:
                         if time.monotonic() >= next_cleanup:
                             self._cleanup_completed_audio()
                             next_cleanup = time.monotonic() + 30
-                        if self._next():
+                        activity = getattr(self, '_activity', None)
+                        with (activity.operation(background=True) if activity else nullcontext(True)) as allowed:
+                            processed = self._next() if allowed else False
+                        if processed:
                             # _next returns only after the worker has exited and
                             # its result transaction / cancellation has settled.
                             self._cleanup_completed_audio()

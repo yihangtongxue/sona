@@ -4,6 +4,7 @@ import { openAccelerationSettings } from "./acceleration.js";
 import { importAudio, openAudioLibrary } from "./library.js";
 import { openManuscripts } from "./manuscripts.js";
 import { showToast } from "./toast.js";
+import { openAbout } from "./updates.js";
 
 const navigationItems = document.querySelectorAll("[data-view]");
 const panels = document.querySelectorAll("[data-panel]");
@@ -31,6 +32,7 @@ function showView(viewName) {
     openModelSettings();
     openAIModelSettings();
     openAccelerationSettings();
+    openAbout();
   }
   if (viewName === "library") openAudioLibrary();
   if (viewName === "manuscripts") openManuscripts();

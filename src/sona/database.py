@@ -8,7 +8,10 @@ from pathlib import Path
 from .models import ModelDefinition, ModelEvent
 
 
-# Current schema only. Structure changes require a fresh development database.
+# Legacy databases may retain user_version up to 5, even after version tracking
+# was removed. Adopt the current schema as version 6; app version 1.0.0 does not
+# reset this sequence. Future structure changes require explicit migrations.
+SCHEMA_VERSION = 6
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS models (
             id TEXT PRIMARY KEY,
@@ -127,8 +130,11 @@ class ModelRepository:
             connection.execute("PRAGMA journal_mode = WAL")
             # Serialize initialization and seed updates across app instances.
             connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("PRAGMA user_version").fetchone()[0] > SCHEMA_VERSION:
+                raise ValueError("数据库来自较新的 Sona 版本，请使用新版应用打开，不能直接降级。")
             for statement in SCHEMA:
                 connection.execute(statement)
+            connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             for model in models:
                 connection.execute(
                     """INSERT INTO models (id, provider, name, kind, locale, storage)

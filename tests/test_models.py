@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from sona.database import ModelRepository
+from sona.database import SCHEMA_VERSION, ModelRepository
 from sona.model_service import ModelService
 from sona.models import BUILTIN_MODELS, ModelEvent
 from sona.paths import get_app_paths
@@ -69,6 +69,58 @@ class ModelStorageTests(unittest.TestCase):
         record = reopened.list_models()[0]
         self.assertTrue(record["selected"])
         self.assertEqual(record["installation_status"], "installed")
+
+    def test_legacy_version_markers_preserve_existing_data(self):
+        self.repository.save_result(MODEL, ModelEvent("installed", "ready"), select=True)
+        with self.repository._connection() as connection:
+            connection.execute(
+                """INSERT INTO ai_model_profiles
+                   (id, name, provider, model_name, api_key_ref, status)
+                   VALUES ('saved-ai', '已有模型', 'openai', 'example-model',
+                           'test-key-reference', 'ready')"""
+            )
+            connection.execute(
+                "INSERT INTO ai_model_selections(feature, model_id) VALUES ('default', 'saved-ai')"
+            )
+            connection.execute(
+                """INSERT INTO manuscripts(id, title, status, source_text, model_json, body)
+                   VALUES ('saved-manuscript', '已有文稿', 'completed', '', '{}', '整理后的正文')"""
+            )
+            connection.execute(
+                "INSERT INTO audio_files(id, name, suffix, size_bytes) "
+                "VALUES ('saved-audio', '已有音频', '.mp3', 123)"
+            )
+            connection.execute(
+                """INSERT INTO transcription_results
+                   (audio_id, text, segments_json, language, duration, model_id,
+                    engine, model_revision, device)
+                   VALUES ('saved-audio', '原始转录正文', '[]', 'zh', 1, ?,
+                           'test-engine', 'test-revision', 'cpu')""", (MODEL.id,)
+            )
+            before = list(connection.iterdump())
+
+        self.assertGreater(SCHEMA_VERSION, 5)
+        for version in (0, 4, 5, SCHEMA_VERSION):
+            with self.subTest(version=version):
+                with self.repository._connection() as connection:
+                    connection.execute(f"PRAGMA user_version = {version}")
+                reopened = ModelRepository(self.database, BUILTIN_MODELS)
+                with reopened._connection() as connection:
+                    self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0],
+                                     SCHEMA_VERSION)
+                    self.assertEqual(list(connection.iterdump()), before)
+
+    def test_future_database_version_is_rejected_without_changing_data(self):
+        future_version = SCHEMA_VERSION + 1
+        with self.repository._connection() as connection:
+            connection.execute(f"PRAGMA user_version = {future_version}")
+            before = list(connection.iterdump())
+        with self.assertRaisesRegex(ValueError, "不能直接降级"):
+            ModelRepository(self.database, BUILTIN_MODELS)
+        with self.repository._connection() as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0],
+                             future_version)
+            self.assertEqual(list(connection.iterdump()), before)
 
     def test_default_model_delete_is_rejected_before_provider_runs(self):
         model = next(item for item in BUILTIN_MODELS if item.storage == "managed")

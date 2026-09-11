@@ -6,6 +6,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 from collections.abc import Callable
@@ -149,6 +150,9 @@ def _helper_command() -> list[str] | None:
     bundled_helper = HELPER_SOURCE.with_suffix("")
     if bundled_helper.is_file() and os.access(bundled_helper, os.X_OK):
         return [str(bundled_helper)]
+    if getattr(sys, "frozen", False):
+        # A distributed application must not require Xcode on the user's Mac.
+        return None
     xcrun_path = shutil.which("xcrun")
     if xcrun_path and HELPER_SOURCE.is_file():
         return [xcrun_path, "swift", str(HELPER_SOURCE)]
