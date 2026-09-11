@@ -53,6 +53,44 @@ class TranscriptionStorageTests(unittest.TestCase):
         self.tasks.pending()
         self.assertEqual(self.tasks.get(identifier)['model_id'], self.model.id)
 
+    def test_apple_default_binds_new_and_waiting_imports(self):
+        waiting = self.import_audio()
+        apple = next(model for model in BUILTIN_MODELS if model.provider == 'apple-speech')
+        self.models.save_result(apple, ModelEvent('installed', 'ready'), select=True)
+        imported = self.import_audio()
+        self.tasks.pending()
+        for identifier in (waiting, imported):
+            self.assertEqual(self.tasks.get(identifier)['model_id'], apple.id)
+            self.assertEqual(self.tasks.get(identifier)['status'], 'queued')
+
+    def test_retry_switches_between_whisper_and_apple(self):
+        self.select_model()
+        identifier = self.import_audio()
+        apple = next(model for model in BUILTIN_MODELS if model.provider == 'apple-speech')
+        self.models.save_result(apple, ModelEvent('installed', 'ready'), select=True)
+        self.tasks.pending()
+        self.assertEqual(self.tasks.get(identifier)['model_id'], self.model.id)
+        self.tasks.cancel(identifier)
+        self.tasks.retry(identifier)
+        self.assertEqual(self.tasks.get(identifier)['model_id'], apple.id)
+        self.tasks.cancel(identifier)
+        self.select_model()
+        self.tasks.retry(identifier)
+        self.assertEqual(self.tasks.get(identifier)['model_id'], self.model.id)
+
+    def test_apple_result_preserves_engine_and_timestamps(self):
+        apple = next(model for model in BUILTIN_MODELS if model.provider == 'apple-speech')
+        self.models.save_result(apple, ModelEvent('installed', 'ready'), select=True)
+        identifier = self.import_audio()
+        task = self.tasks.claim(identifier, 'apple-speech', 'system-macOS-26.5', apple.id)
+        result = dict(self.result, language='zh_CN', device='Apple Speech · 系统引擎')
+        self.tasks.complete(task, result)
+        saved = TaskRepository(self.database).result(identifier)
+        self.assertEqual(saved['engine'], 'apple-speech')
+        self.assertEqual(saved['model_id'], apple.id)
+        self.assertEqual(saved['segments'], result['segments'])
+        self.assertEqual(saved['device'], result['device'])
+
     def test_later_selection_does_not_change_bound_task(self):
         self.select_model()
         identifier = self.import_audio()

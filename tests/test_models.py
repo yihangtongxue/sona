@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from sona.database import MIGRATIONS, ModelRepository, SCHEMA_VERSION
+from sona.database import ModelRepository
 from sona.model_service import ModelService
 from sona.models import BUILTIN_MODELS, ModelEvent
 from sona.paths import get_app_paths
@@ -49,8 +49,8 @@ class ModelStorageTests(unittest.TestCase):
         self.database = Path(self.directory.name) / "sona.sqlite3"
         self.repository = ModelRepository(self.database, BUILTIN_MODELS)
 
-    def service(self, provider):
-        service = ModelService(self.repository, {MODEL.provider: provider}, (MODEL,))
+    def service(self, provider, model=MODEL):
+        service = ModelService(self.repository, {model.provider: provider}, (model,))
         self.addCleanup(service.close)
         return service
 
@@ -63,64 +63,43 @@ class ModelStorageTests(unittest.TestCase):
             threading.Event().wait(0.01)
         self.fail("Model task did not finish.")
 
-    def test_migration_and_selection_survive_reopening(self):
+    def test_initialization_preserves_selection_on_reopen(self):
         self.repository.save_result(MODEL, ModelEvent("installed", "ready"), select=True)
         reopened = ModelRepository(self.database, BUILTIN_MODELS)
         record = reopened.list_models()[0]
         self.assertTrue(record["selected"])
         self.assertEqual(record["installation_status"], "installed")
-        connection = sqlite3.connect(self.database)
-        try:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
-        finally:
-            connection.close()
 
-    def test_rejects_newer_database_without_downgrading_it(self):
-        connection = sqlite3.connect(self.database)
-        try:
-            connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
-            connection.commit()
-        finally:
-            connection.close()
-        with self.assertRaises(RuntimeError):
-            ModelRepository(self.database, BUILTIN_MODELS)
+    def test_default_model_delete_is_rejected_before_provider_runs(self):
+        model = next(item for item in BUILTIN_MODELS if item.storage == "managed")
+        self.repository.save_result(model, ModelEvent("installed", "ready"), select=True)
+        provider = FakeProvider()
+        service = self.service(provider, model)
+        with self.assertRaisesRegex(ValueError, "默认模型不能删除"):
+            service.start(model.id, "delete")
+        self.assertEqual(provider.calls, [])
+        self.assertTrue(service.list_models()[0]["selected"])
 
-    def test_upgrade_version_one_preserves_existing_selection(self):
-        old_database = Path(self.directory.name) / "version-one.sqlite3"
-        connection = sqlite3.connect(old_database)
-        try:
-            with connection:
-                for statement in MIGRATIONS[1]:
-                    connection.execute(statement)
-                connection.execute("PRAGMA user_version = 1")
-                connection.execute(
-                    "INSERT INTO models (id, provider, name, kind, locale, storage) VALUES (?, ?, ?, ?, ?, ?)",
-                    (MODEL.id, MODEL.provider, MODEL.name, MODEL.kind, MODEL.locale, MODEL.storage),
-                )
-                connection.execute(
-                    "INSERT INTO model_installations (model_id, status) VALUES (?, 'installed')", (MODEL.id,),
-                )
-                connection.execute(
-                    "INSERT INTO model_selections (kind, model_id) VALUES (?, ?)", (MODEL.kind, MODEL.id),
-                )
-        finally:
-            connection.close()
-        record = ModelRepository(old_database, (MODEL,)).list_models()[0]
-        self.assertTrue(record["selected"])
-        self.assertEqual(record["installation_status"], "installed")
-        self.assertIsNone(record["downloaded_bytes"])
-
-    def test_failed_delete_keeps_default_selection(self):
+    def test_model_can_be_deleted_after_switching_default(self):
+        model = next(item for item in BUILTIN_MODELS if item.storage == "managed")
+        self.repository.save_result(model, ModelEvent("installed", "ready"), select=True)
         self.repository.save_result(MODEL, ModelEvent("installed", "ready"), select=True)
-        service = self.service(FakeProvider("failed"))
-        service.start(MODEL.id, "delete")
-        self.assertTrue(self.wait_for_result(service)["selected"])
-
-    def test_successful_delete_clears_selection(self):
-        self.repository.save_result(MODEL, ModelEvent("installed", "ready"), select=True)
-        service = self.service(FakeProvider("supported"))
-        service.start(MODEL.id, "delete")
+        service = self.service(FakeProvider("supported"), model)
+        service.start(model.id, "delete")
         self.assertFalse(self.wait_for_result(service)["selected"])
+        selected = [item['id'] for item in self.repository.list_models() if item['selected']]
+        self.assertEqual(selected, [MODEL.id])
+
+    def test_delete_reads_selection_changed_by_another_instance(self):
+        model = next(item for item in BUILTIN_MODELS if item.storage == "managed")
+        provider = FakeProvider()
+        service = self.service(provider, model)
+        self.assertFalse(service.list_models()[0]['selected'])
+        other = ModelRepository(self.database, BUILTIN_MODELS)
+        other.save_result(model, ModelEvent('installed', 'ready'), select=True)
+        with self.assertRaisesRegex(ValueError, "默认模型不能删除"):
+            service.start(model.id, 'delete')
+        self.assertEqual(provider.calls, [])
 
     def test_delete_record_and_selection_roll_back_together(self):
         self.repository.save_result(MODEL, ModelEvent("installed", "ready"), select=True)
@@ -210,11 +189,20 @@ class ModelStorageTests(unittest.TestCase):
     def test_download_and_selection_are_separate(self):
         provider = FakeProvider()
         service = self.service(provider)
+        self.assertIsNone(MODEL.bundle)
+        self.assertTrue(service.list_models()[0]["can_transcribe"])
         service.start(MODEL.id, "download")
         self.assertFalse(self.wait_for_result(service)["selected"])
         service.start(MODEL.id, "select")
         self.assertTrue(self.wait_for_result(service)["selected"])
         self.assertEqual(provider.calls, [("download", MODEL.id), ("status", MODEL.id)])
+
+    def test_system_assets_cannot_be_deleted_through_service(self):
+        provider = FakeProvider()
+        service = self.service(provider)
+        with self.assertRaisesRegex(ValueError, "系统管理"):
+            service.start(MODEL.id, "delete")
+        self.assertEqual(provider.calls, [])
 
     def test_unavailable_model_cannot_be_selected(self):
         service = self.service(FakeProvider("supported"))

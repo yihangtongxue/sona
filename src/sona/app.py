@@ -30,12 +30,14 @@ def main() -> None:
     repository = ModelRepository(paths.database, BUILTIN_MODELS)
     audio_library = AudioLibrary(paths.database, paths.audio_dir)
     whisper_provider = WhisperBundleProvider(paths.models_dir, paths.downloads_dir)
+    apple_provider = AppleSpeechProvider()
     model_service = ModelService(repository, {
-        "apple-speech": AppleSpeechProvider(),
+        "apple-speech": apple_provider,
         "whisper": whisper_provider,
     }, BUILTIN_MODELS)
     acceleration = AccelerationService(paths)
-    transcription = TranscriptionService(paths, whisper_provider, BUILTIN_MODELS, acceleration)
+    transcription = TranscriptionService(paths, whisper_provider, BUILTIN_MODELS, acceleration,
+                                         apple_provider=apple_provider)
     web_root = Path(__file__).with_name("web")
     icon_path = Path(__file__).resolve().parents[2] / "assets" / "Sona.icns"
     try:

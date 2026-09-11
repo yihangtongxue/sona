@@ -8,10 +8,9 @@ from pathlib import Path
 from .models import ModelDefinition, ModelEvent
 
 
-SCHEMA_VERSION = 4
-MIGRATIONS = {
-    1: (
-        """CREATE TABLE models (
+# Current schema only. Structure changes require a fresh development database.
+SCHEMA = (
+    """CREATE TABLE IF NOT EXISTS models (
             id TEXT PRIMARY KEY,
             provider TEXT NOT NULL,
             name TEXT NOT NULL,
@@ -20,36 +19,30 @@ MIGRATIONS = {
             storage TEXT NOT NULL,
             config_json TEXT NOT NULL DEFAULT '{}'
         )""",
-        """CREATE TABLE model_installations (
+    """CREATE TABLE IF NOT EXISTS model_installations (
             model_id TEXT PRIMARY KEY REFERENCES models(id) ON DELETE CASCADE,
             status TEXT NOT NULL DEFAULT 'unknown'
                 CHECK (status IN ('unknown', 'installed', 'not_installed', 'downloading', 'unsupported')),
             resource_path TEXT,
             checked_at TEXT,
-            last_error TEXT NOT NULL DEFAULT ''
+            last_error TEXT NOT NULL DEFAULT '',
+            downloaded_bytes INTEGER,
+            total_bytes INTEGER,
+            artifact_version TEXT
         )""",
-        """CREATE TABLE model_selections (
+    """CREATE TABLE IF NOT EXISTS model_selections (
             kind TEXT PRIMARY KEY,
             model_id TEXT NOT NULL REFERENCES models(id) ON DELETE CASCADE,
             selected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
-    ),
-    2: (
-        "ALTER TABLE model_installations ADD COLUMN downloaded_bytes INTEGER",
-        "ALTER TABLE model_installations ADD COLUMN total_bytes INTEGER",
-        "ALTER TABLE model_installations ADD COLUMN artifact_version TEXT",
-    ),
-    3: (
-        """CREATE TABLE audio_files (
+    """CREATE TABLE IF NOT EXISTS audio_files (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             suffix TEXT NOT NULL,
             size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
             imported_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         )""",
-    ),
-    4: (
-        """CREATE TABLE transcription_tasks (
+    """CREATE TABLE IF NOT EXISTS transcription_tasks (
             audio_id TEXT PRIMARY KEY REFERENCES audio_files(id) ON DELETE CASCADE,
             status TEXT NOT NULL DEFAULT 'waiting_model'
                 CHECK(status IN ('waiting_model','queued','transcribing','cancelling',
@@ -64,8 +57,8 @@ MIGRATIONS = {
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
             updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         )""",
-        """CREATE INDEX transcription_queue ON transcription_tasks(status, created_at)""",
-        """CREATE TABLE transcription_results (
+    """CREATE INDEX IF NOT EXISTS transcription_queue ON transcription_tasks(status, created_at)""",
+    """CREATE TABLE IF NOT EXISTS transcription_results (
             audio_id TEXT PRIMARY KEY REFERENCES audio_files(id) ON DELETE CASCADE,
             text TEXT NOT NULL,
             segments_json TEXT NOT NULL,
@@ -77,17 +70,16 @@ MIGRATIONS = {
             device TEXT NOT NULL,
             completed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         )""",
-        # Existing imports join the same queue when the feature is first enabled.
-        "INSERT INTO transcription_tasks(audio_id) SELECT id FROM audio_files",
-        """CREATE TRIGGER enqueue_import AFTER INSERT ON audio_files BEGIN
+    """CREATE TRIGGER IF NOT EXISTS enqueue_import AFTER INSERT ON audio_files BEGIN
             INSERT INTO transcription_tasks(audio_id, model_id, status)
             VALUES (NEW.id, (SELECT s.model_id FROM model_selections s
-                JOIN models m ON m.id=s.model_id WHERE s.kind='speech' AND m.provider='whisper'),
+                JOIN models m ON m.id=s.model_id
+                WHERE s.kind='speech' AND m.provider IN ('whisper','apple-speech')),
                 CASE WHEN EXISTS(SELECT 1 FROM model_selections s JOIN models m ON m.id=s.model_id
-                    WHERE s.kind='speech' AND m.provider='whisper') THEN 'queued' ELSE 'waiting_model' END);
+                    WHERE s.kind='speech' AND m.provider IN ('whisper','apple-speech'))
+                    THEN 'queued' ELSE 'waiting_model' END);
         END""",
-    ),
-}
+)
 
 
 class ModelRepository:
@@ -96,15 +88,10 @@ class ModelRepository:
         database.parent.mkdir(parents=True, exist_ok=True)
         with self._connection() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
-            # Serialize migrations and seed updates across simultaneous app launches.
+            # Serialize initialization and seed updates across app instances.
             connection.execute("BEGIN IMMEDIATE")
-            version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > SCHEMA_VERSION:
-                raise RuntimeError("数据库版本高于当前软件支持的版本，请使用较新的 Sona。")
-            for target in range(version + 1, SCHEMA_VERSION + 1):
-                for statement in MIGRATIONS[target]:
-                    connection.execute(statement)
-                connection.execute(f"PRAGMA user_version = {target}")
+            for statement in SCHEMA:
+                connection.execute(statement)
             for model in models:
                 connection.execute(
                     """INSERT INTO models (id, provider, name, kind, locale, storage)

@@ -24,12 +24,24 @@ class ModelDefinition:
     artifact_version: str | None = None
     bundle: dict | None = None
 
+    @property
+    def engine(self) -> str | None:
+        if self.provider == "apple-speech":
+            return "apple-speech"
+        if self.provider == "whisper" and self.bundle:
+            return transcription_engine()
+        return None
+
+    @property
+    def can_transcribe(self) -> bool:
+        return self.engine is not None
+
 
 BUILTIN_MODELS = (
     ModelDefinition(
         id="apple-speech-zh-cn", provider="apple-speech", name="Apple Speech",
         kind="speech", locale="zh-CN", storage="system",
-        description="Apple 提供的中文语音识别，转录功能暂未开放。",
+        description="Apple 原生中文离线转录，语言资源由系统管理。需要 macOS 26 或更高版本。",
     ),
     ModelDefinition(
         id="whisper-small", provider="whisper", name="Whisper Small",

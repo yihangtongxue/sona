@@ -36,9 +36,9 @@
             <span>或将文件拖放到这里</span>
             <small id="audio-formats">可选择 MP3、WAV、M4A 等音频文件，一次一个</small>
           </button>
-          <div class="file-selection">
-            <p class="selected-file" id="selected-file" aria-live="polite"></p>
-            <button class="secondary-button" id="clear-file" type="button" hidden>取消选择</button>
+          <div class="import-progress" id="import-progress" hidden>
+            <p class="import-status" id="import-status" aria-live="polite"></p>
+            <button class="secondary-button" id="cancel-import" type="button">取消导入</button>
           </div>
         </section>
         <section class="view" data-panel="library" aria-label="我的音频" hidden>

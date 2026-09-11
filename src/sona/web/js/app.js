@@ -1,6 +1,5 @@
 import { openModelSettings } from "./models.js";
 import { openAccelerationSettings } from "./acceleration.js";
-import { formatBytes } from "./format.js";
 import { importAudio, openAudioLibrary } from "./library.js";
 import { showToast } from "./toast.js";
 
@@ -8,10 +7,10 @@ const navigationItems = document.querySelectorAll("[data-view]");
 const panels = document.querySelectorAll("[data-panel]");
 const fileInput = document.querySelector("#audio-file");
 const dropZone = document.querySelector("#drop-zone");
-const selectedFile = document.querySelector("#selected-file");
+const importProgress = document.querySelector("#import-progress");
+const importStatus = document.querySelector("#import-status");
 const uploadTriggers = document.querySelectorAll("[data-upload-trigger]");
-const clearFileButton = document.querySelector("#clear-file");
-let selectedAudioFile = null;
+const cancelImportButton = document.querySelector("#cancel-import");
 let dragDepth = 0;
 let importing = false;
 let importCancelled = false;
@@ -34,15 +33,9 @@ function showView(viewName) {
   window.dispatchEvent(new CustomEvent("view-changed", { detail: viewName }));
 }
 
-function renderSelectedFile() {
-  selectedFile.textContent = selectedAudioFile
-    ? `已导入：${selectedAudioFile.name}（${formatBytes(selectedAudioFile.size)}）` : "";
-  clearFileButton.hidden = !selectedAudioFile;
-}
-
 async function selectAudioFile(files) {
   if (importing) return;
-  if (!files.length) return; // Cancelling the picker preserves the previous file.
+  if (!files.length) return;
   const file = files[0];
   if (files.length !== 1) {
     showToast("请一次选择一个音频文件。");
@@ -62,14 +55,12 @@ async function selectAudioFile(files) {
   importCancelled = false;
   uploadTriggers.forEach((button) => { button.disabled = true; });
   dropZone.setAttribute("aria-busy", "true");
-  clearFileButton.hidden = false;
-  clearFileButton.textContent = "取消导入";
-  selectedFile.textContent = `正在导入：${file.name}（0%）`;
+  importProgress.hidden = false;
+  importStatus.textContent = `正在导入：${file.name}（0%）`;
   try {
     await importAudio(file, (progress) => {
-      selectedFile.textContent = `正在导入：${file.name}（${progress}%）`;
+      importStatus.textContent = `正在导入：${file.name}（${progress}%）`;
     }, () => importCancelled);
-    selectedAudioFile = { name: file.name, size: file.size };
     showView("library");
     showToast(`已导入“${file.name}”。`, "success");
   } catch (error) {
@@ -79,9 +70,13 @@ async function selectAudioFile(files) {
     importing = false;
     uploadTriggers.forEach((button) => { button.disabled = false; });
     dropZone.setAttribute("aria-busy", "false");
-    clearFileButton.textContent = "清除";
-    clearFileButton.disabled = false;
-    renderSelectedFile();
+    const returnFocus = document.activeElement === cancelImportButton;
+    importProgress.hidden = true;
+    importStatus.textContent = "";
+    cancelImportButton.textContent = "取消导入";
+    cancelImportButton.disabled = false;
+    fileInput.value = "";
+    if (returnFocus && !dropZone.closest('[data-panel="upload"]').hidden) dropZone.focus();
   }
 }
 
@@ -100,17 +95,11 @@ fileInput.addEventListener("change", () => {
   selectAudioFile(fileInput.files);
   fileInput.value = "";
 });
-clearFileButton.addEventListener("click", () => {
-  if (importing) {
-    importCancelled = true;
-    clearFileButton.disabled = true;
-    clearFileButton.textContent = "正在取消";
-    return;
-  }
-  selectedAudioFile = null;
-  fileInput.value = "";
-  renderSelectedFile();
-  dropZone.focus();
+cancelImportButton.addEventListener("click", () => {
+  if (!importing || importCancelled) return;
+  importCancelled = true;
+  cancelImportButton.disabled = true;
+  cancelImportButton.textContent = "正在取消";
 });
 dropZone.addEventListener("dragenter", (event) => {
   event.preventDefault();

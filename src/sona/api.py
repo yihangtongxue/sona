@@ -114,7 +114,7 @@ class AppApi:
     def select_model(self, model_id: str) -> list[dict[str, object]]:
         model = next((item for item in self._model_service.list_models() if item['id'] == model_id), None)
         if not model or not model.get('can_transcribe'):
-            raise ValueError("当前自动转录支持 Whisper 模型，请选择一个 Whisper 模型。")
+            raise ValueError("该模型尚不支持转录，请选择可用的音频转文字模型。")
         return self._model_service.start(model_id, "select")
 
     @log_api_call

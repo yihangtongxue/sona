@@ -36,10 +36,10 @@ class TaskRepository:
         with self.connection() as db:
             db.execute("""UPDATE transcription_tasks SET status='queued', model_id=(
                 SELECT s.model_id FROM model_selections s JOIN models m ON m.id=s.model_id
-                WHERE s.kind='speech' AND m.provider='whisper')
+                WHERE s.kind='speech' AND m.provider IN ('whisper','apple-speech'))
                 WHERE model_id IS NULL AND status='waiting_model'
                 AND EXISTS(SELECT 1 FROM model_selections s JOIN models m ON m.id=s.model_id
-                    WHERE s.kind='speech' AND m.provider='whisper')""")
+                    WHERE s.kind='speech' AND m.provider IN ('whisper','apple-speech'))""")
             rows = db.execute("""SELECT t.*, a.name, a.suffix FROM transcription_tasks t
                 JOIN audio_files a ON a.id=t.audio_id
                 WHERE t.status IN ('queued','waiting_model') ORDER BY t.created_at, t.audio_id""").fetchall()
@@ -96,7 +96,8 @@ class TaskRepository:
         with self.connection() as db:
             cursor = db.execute("""UPDATE transcription_tasks SET status='waiting_model',
                 model_id=COALESCE((SELECT s.model_id FROM model_selections s
-                    JOIN models m ON m.id=s.model_id WHERE s.kind='speech' AND m.provider='whisper'),model_id),
+                    JOIN models m ON m.id=s.model_id
+                    WHERE s.kind='speech' AND m.provider IN ('whisper','apple-speech')),model_id),
                 engine=NULL, model_revision=NULL, detail='', error='', device='',
                 created_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
                 updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')

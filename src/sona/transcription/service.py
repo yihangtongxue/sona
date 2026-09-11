@@ -6,10 +6,15 @@ import threading
 import time
 import uuid
 import sys
+import os
+import platform
+import signal
+import tempfile
+from contextlib import nullcontext
 
 from ..file_lock import FileLocked, exclusive_file_lock
 from ..audio_library import AUDIO_SUFFIXES
-from ..models import engine_supported, transcription_engine
+from ..models import engine_supported
 from .repository import TaskRepository
 from .worker import run_worker
 
@@ -18,12 +23,12 @@ logger = logging.getLogger(__name__)
 
 
 class TranscriptionService:
-    def __init__(self, paths, provider, models, acceleration=None):
+    def __init__(self, paths, provider, models, acceleration=None, *, apple_provider=None):
         self.repository = TaskRepository(paths.database)
         self._paths = paths
-        self._provider = provider
+        self._providers = {'whisper': provider, 'apple-speech': apple_provider}
         self._acceleration = acceleration
-        self._models = {model.id: model for model in models if model.bundle}
+        self._models = {model.id: model for model in models if model.can_transcribe}
         self._closed = threading.Event()
         self._context = multiprocessing.get_context('spawn')
         paths.downloads_dir.mkdir(parents=True, exist_ok=True)
@@ -52,25 +57,37 @@ class TranscriptionService:
                 self._closed.wait(2)
 
     def _next(self):
+        states = {}
         for record in self.repository.pending():
             if self._closed.is_set():
                 return False
             model = self._models.get(record['model_id'])
             if model is None:
-                self.repository.wait_for_model(record['audio_id'], '请在模型设置中下载并选择默认 Whisper 模型。')
+                self.repository.wait_for_model(record['audio_id'], '请在模型设置中准备并选择默认音频转文字模型。')
                 continue
-            if not engine_supported():
+            if model.provider == 'whisper' and not engine_supported():
                 self.repository.wait_for_model(record['audio_id'], 'Mac 端转录需要 Apple 芯片和原生 ARM64 Python。')
                 continue
             try:
-                state = self._provider.run('status', model, lambda _: None)
+                provider = self._providers.get(model.provider)
+                if provider is None:
+                    raise ValueError('转录引擎未配置，请重新启动应用。')
+                # Query once per sweep when many files await the same asset.
+                if model.id not in states:
+                    states[model.id] = provider.run('status', model, lambda _: None)
+                state = states[model.id]
             except (OSError, ValueError) as error:
                 self.repository.wait_for_model(record['audio_id'], f'无法读取 {model.name}：{error}')
                 continue
+            if self._closed.is_set():
+                return False
             if state.status != 'installed':
-                self.repository.wait_for_model(record['audio_id'], f'请在模型设置中下载 {model.name}。')
+                self.repository.wait_for_model(record['audio_id'],
+                    f'{model.name}：{state.detail} 请前往模型设置处理。')
                 continue
-            task = self.repository.claim(record['audio_id'], transcription_engine(), model.bundle['revision'], model.id)
+            revision = (f'system-macOS-{platform.mac_ver()[0]}' if model.engine == 'apple-speech'
+                        else model.bundle['revision'])
+            task = self.repository.claim(record['audio_id'], model.engine, revision, model.id)
             if task is None:
                 continue
             task_log = logging.LoggerAdapter(logger, {'task_id': task['audio_id']})
@@ -82,7 +99,12 @@ class TranscriptionService:
                 if record['suffix'] not in AUDIO_SUFFIXES:
                     raise ValueError('音频记录中的文件格式无效。')
                 audio_path = self._paths.audio_dir / f"{identifier}{record['suffix']}"
-                self._execute(task, audio_path, state.resource_path)
+                # The supervisor owns temporary audio, so killing a worker on
+                # cancellation still removes its decoded file.
+                scratch = (tempfile.TemporaryDirectory(prefix='sona-speech-')
+                           if model.engine == 'apple-speech' else nullcontext(None))
+                with scratch as work_dir:
+                    self._execute(task, audio_path, state.resource_path, model.locale, work_dir)
             except Exception as error:
                 task_log.exception('任务启动或结果保存失败')
                 self.repository.update(task, 'failed', '无法启动或保存转录任务，请重试。', str(error))
@@ -93,10 +115,11 @@ class TranscriptionService:
             return True
         return False
 
-    def _execute(self, task, audio_path, model_path):
+    def _execute(self, task, audio_path, model_path, locale='zh-CN', work_dir=None):
         task_log = logging.LoggerAdapter(logger, {'task_id': task['audio_id']})
         started_at = time.monotonic()
-        runtime = self._acceleration.runtime_for_task() if self._acceleration else None
+        native = task['engine'] == 'apple-speech'
+        runtime = self._acceleration.runtime_for_task() if self._acceleration and not native else None
         force_cpu = sys.platform == 'win32' and runtime is None
         fell_back = False
         task_log.info('任务设备选择 force_cpu=%s managed_acceleration=%s', force_cpu, bool(runtime))
@@ -108,7 +131,8 @@ class TranscriptionService:
                 target=run_worker,
                 args=(send, str(audio_path), str(model_path),
                       str(self._paths.downloads_dir / f"{task['model_id']}.lock"),
-                      task['engine'], force_cpu, task['audio_id'], runtime if not force_cpu else None),
+                      task['engine'], force_cpu, task['audio_id'], runtime if not force_cpu else None,
+                      locale, work_dir),
                 name='sona-transcription', daemon=True,
             )
             outcome = None
@@ -156,12 +180,17 @@ class TranscriptionService:
                         process.join(timeout=0.5)
                     if process.is_alive():
                         task_log.info('结束识别子进程 pid=%s', process.pid)
+                        if native:
+                            _signal_native_group(process.pid, signal.SIGTERM)
                         process.terminate()
                         process.join(timeout=2)
                     if process.is_alive():
                         task_log.warning('强制结束识别子进程 pid=%s', process.pid)
                         process.kill()
                         process.join()
+                    if native:
+                        # Also reap a helper left behind by a crashed worker.
+                        _signal_native_group(process.pid, signal.SIGKILL)
                     task_log.info('识别子进程已退出 pid=%s exitcode=%s', process.pid, process.exitcode)
                     process.close()
                 receive.close()
@@ -213,5 +242,16 @@ class TranscriptionService:
     def close(self):
         logger.info('正在停止转录队列')
         self._closed.set()
+        if self._providers.get('apple-speech') is not None:
+            self._providers['apple-speech'].close()
         self._thread.join()
         logger.info('转录队列已停止')
+
+
+def _signal_native_group(pid, sig):
+    if sys.platform == 'darwin':
+        try:
+            os.killpg(pid, sig)
+        except ProcessLookupError:
+            # Cancellation may win before the worker creates its session.
+            pass

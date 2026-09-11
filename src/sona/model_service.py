@@ -5,8 +5,10 @@ import logging
 import time
 from collections.abc import Sequence
 from dataclasses import asdict, replace
+from contextlib import ExitStack
 
 from .database import ModelRepository
+from .file_lock import FileLocked, exclusive_file_lock
 from .models import ModelDefinition, ModelEvent, ModelProvider
 
 
@@ -46,7 +48,7 @@ class ModelService:
                     job["elapsed"] = int(time.monotonic() - job["started_at"])
                 job.pop("started_at", None)
                 result.append({**record, "description": model.description,
-                               "can_transcribe": bool(model.bundle), **job})
+                               "can_transcribe": model.can_transcribe, **job})
             return result
 
     def refresh_all(self) -> list[dict[str, object]]:
@@ -63,9 +65,16 @@ class ModelService:
             raise ValueError("模型不存在。")
         if action not in {"status", "download", "select", "delete"}:
             raise ValueError("不支持的模型操作。")
+        model = self._models[model_id]
+        if action == "select" and not model.can_transcribe:
+            raise ValueError("该模型尚不支持转录，无法设为默认。")
+        if action == "delete" and model.storage != "managed":
+            raise ValueError("该模型资源由系统管理，无法在应用内删除。")
         with self._lock:
             if self._closed:
                 raise RuntimeError("应用正在关闭。")
+            if action == "delete":
+                self._check_delete(model_id)
             current = self._jobs.get(model_id)
             if action == "select" and any(
                 job["active"] and job["action"] == "select"
@@ -92,6 +101,12 @@ class ModelService:
                     self._jobs[model_id].update(active=False, status="unknown", detail="无法启动模型任务。")
                     raise
 
+    def _check_delete(self, model_id: str) -> None:
+        # Read the persisted selection, including changes made by other windows.
+        if any(record['id'] == model_id and record['selected']
+               for record in self._repository.list_models()):
+            raise ValueError("默认模型不能删除，请先将其他模型设为默认。")
+
     def pause(self, model_id: str) -> list[dict[str, object]]:
         if model_id not in self._models:
             raise ValueError("模型不存在。")
@@ -113,6 +128,7 @@ class ModelService:
         model = self._models[model_id]
         last_saved_at = 0.0
         last_saved_status: str | None = None
+        operation_lock = ExitStack()
 
         def emit(event: ModelEvent) -> None:
             nonlocal last_saved_at, last_saved_status
@@ -135,9 +151,18 @@ class ModelService:
 
         try:
             try:
+                if action in {"select", "delete"}:
+                    # Selection and deletion must not race across app instances.
+                    # Hold this through resource validation and selection commit.
+                    operation_lock.enter_context(exclusive_file_lock(
+                        self._repository.database.with_suffix('.model-selection.lock')))
+                if action == "delete":
+                    self._check_delete(model_id)
                 provider = self._providers[model.provider]
                 provider_action = "download" if action == "download" else "delete" if action == "delete" else "status"
                 event = provider.run(provider_action, model, emit)
+            except FileLocked:
+                event = ModelEvent("locked", "其他窗口正在更改模型设置，请稍后重试。")
             except Exception as error:
                 logger.exception('模型操作失败 model=%s action=%s', model_id, action)
                 event = ModelEvent("unknown", "无法确认模型资源状态。", error=f"{type(error).__name__}: {error}")
@@ -161,6 +186,7 @@ class ModelService:
             logger.exception('保存模型任务状态失败 model=%s action=%s', model_id, action)
             emit(ModelEvent("unknown", "无法保存模型记录，请重新检查。", error=f"{type(error).__name__}: {error}"))
         finally:
+            operation_lock.close()
             with self._lock:
                 job = self._jobs[model_id]
                 job["elapsed"] = int(time.monotonic() - job["started_at"])

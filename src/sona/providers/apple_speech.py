@@ -90,7 +90,7 @@ class AppleSpeechProvider:
 
         if timed_out.is_set():
             return ModelEvent(
-                "unknown", "系统响应超时，请刷新状态。",
+                "unknown", "系统响应超时，请稍后重试。",
                 error=diagnostics or "本次请求已停止等待；已提交的系统下载可能仍在继续。",
             )
         if returncode != 0:
@@ -128,6 +128,9 @@ def _parse_event(line: str) -> ModelEvent | None:
     status = payload.get("status")
     if not isinstance(status, str) or status not in EVENT_STATUSES:
         return None
+    if status == "installed" and payload.get("protocol_version") != 2:
+        return ModelEvent("unknown", "原生语音工具版本过旧，请更新后重试。",
+                          error="请更新 SONA_SPEECH_HELPER 或应用附带的 speech_asset_manager，当前工具尚不支持转录。")
     progress = payload.get("progress")
     if (isinstance(progress, bool) or not isinstance(progress, (int, float))
             or not math.isfinite(progress)):
