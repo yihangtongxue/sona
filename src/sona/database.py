@@ -79,6 +79,29 @@ SCHEMA = (
                     WHERE s.kind='speech' AND m.provider IN ('whisper','apple-speech'))
                     THEN 'queued' ELSE 'waiting_model' END);
         END""",
+    """CREATE TABLE IF NOT EXISTS ai_model_profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model_name TEXT NOT NULL,
+            base_url TEXT,
+            api_key_ref TEXT,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'untested'
+                CHECK(status IN ('untested', 'ready', 'failed')),
+            last_tested_at TEXT,
+            last_error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )""",
+    """CREATE TABLE IF NOT EXISTS ai_model_selections (
+            feature TEXT PRIMARY KEY,
+            model_id TEXT NOT NULL REFERENCES ai_model_profiles(id) ON DELETE CASCADE,
+            selected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    """CREATE TABLE IF NOT EXISTS ai_credential_cleanup (
+            key_ref TEXT PRIMARY KEY
+        )""",
 )
 
 

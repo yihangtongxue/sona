@@ -4,6 +4,7 @@ from functools import wraps
 from inspect import signature
 
 from .audio_library import AudioLibrary
+from .ai_model_service import AIModelService
 from .model_service import ModelService
 
 
@@ -39,11 +40,44 @@ def log_api_call(function):
 class AppApi:
     """Methods exposed to the desktop webview."""
 
-    def __init__(self, model_service: ModelService, audio_library: AudioLibrary, transcription, acceleration=None) -> None:
+    def __init__(self, model_service: ModelService, audio_library: AudioLibrary, transcription,
+                 acceleration=None, ai_model_service: AIModelService | None = None) -> None:
         self._model_service = model_service
         self._audio_library = audio_library
         self._transcription = transcription
         self._acceleration = acceleration
+        self._ai_models = ai_model_service
+
+    def list_ai_models(self) -> list[dict[str, object]]:
+        if self._ai_models is None:
+            return []
+        return self._ai_models.list_models()
+
+    def get_ai_model_api_key(self, identifier: str) -> str:
+        return self._ai_models.get_model_api_key(identifier)
+
+    @log_api_call
+    def add_ai_model(self, name: str, provider: str, model_name: str,
+                     base_url: str = "", api_key: str = "", config: dict | None = None) -> list[dict[str, object]]:
+        return self._ai_models.add_model(name, provider, model_name, base_url, api_key, config or {})
+
+    @log_api_call
+    def update_ai_model(self, identifier: str, name: str, provider: str, model_name: str,
+                        base_url: str = "", api_key: str = "", config: dict | None = None) -> list[dict[str, object]]:
+        return self._ai_models.update_model(identifier, name, provider, model_name,
+                                             base_url, api_key, config or {})
+
+    @log_api_call
+    def test_ai_model(self, identifier: str) -> list[dict[str, object]]:
+        return self._ai_models.test_model(identifier)
+
+    @log_api_call
+    def select_ai_model(self, identifier: str) -> list[dict[str, object]]:
+        return self._ai_models.select_model(identifier)
+
+    @log_api_call
+    def delete_ai_model(self, identifier: str) -> list[dict[str, object]]:
+        return self._ai_models.delete_model(identifier)
 
     def acceleration_status(self) -> dict:
         return self._acceleration.status()

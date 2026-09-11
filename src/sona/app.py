@@ -7,6 +7,7 @@ from pathlib import Path
 import webview
 
 from .api import AppApi
+from .ai_model_service import AIModelService
 from .acceleration.service import AccelerationService
 from .audio_library import AudioLibrary
 from .database import ModelRepository
@@ -35,6 +36,7 @@ def main() -> None:
         "apple-speech": apple_provider,
         "whisper": whisper_provider,
     }, BUILTIN_MODELS)
+    ai_model_service = AIModelService(paths.database)
     acceleration = AccelerationService(paths)
     transcription = TranscriptionService(paths, whisper_provider, BUILTIN_MODELS, acceleration,
                                          apple_provider=apple_provider)
@@ -44,7 +46,7 @@ def main() -> None:
         webview.create_window(
             "Sona", str(web_root / "index.html"),
             width=960, height=640, min_size=(720, 480),
-            js_api=AppApi(model_service, audio_library, transcription, acceleration),
+            js_api=AppApi(model_service, audio_library, transcription, acceleration, ai_model_service),
         )
         # pywebview's Windows backend requires an .ico file; passing the macOS
         # .icns asset makes System.Drawing fail before the window is shown.

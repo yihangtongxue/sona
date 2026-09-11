@@ -1,4 +1,5 @@
 import { openModelSettings } from "./models.js";
+import { openAIModelSettings } from "./ai-models.js";
 import { openAccelerationSettings } from "./acceleration.js";
 import { importAudio, openAudioLibrary } from "./library.js";
 import { showToast } from "./toast.js";
@@ -27,6 +28,7 @@ function showView(viewName) {
   });
   if (viewName === "settings") {
     openModelSettings();
+    openAIModelSettings();
     openAccelerationSettings();
   }
   if (viewName === "library") openAudioLibrary();

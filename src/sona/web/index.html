@@ -100,10 +100,14 @@
             <section class="settings-group" aria-labelledby="ai-model-title">
               <div class="group-heading">
                 <h2 id="ai-model-title">AI 模型</h2>
-                <button class="secondary-button" type="button" disabled aria-describedby="ai-model-note">新增模型</button>
+                <button class="secondary-button" id="add-ai-model" type="button">新增模型</button>
               </div>
-              <div class="models-empty">
-                <span id="ai-model-note">AI 模型配置暂未开放</span>
+              <div id="ai-models">
+                <p class="models-loading" role="status">正在读取 AI 模型列表…</p>
+              </div>
+              <div class="models-feedback" id="ai-model-feedback" hidden>
+                <p id="ai-model-feedback-message" role="status"></p>
+                <button class="secondary-button" id="ai-model-reconnect" type="button">重新加载</button>
               </div>
             </section>
           </div>
@@ -128,6 +132,65 @@
       </div>
       <p class="task-detail-name" id="task-detail-name"></p>
       <p class="task-detail-content" id="task-detail-content"></p>
+    </dialog>
+    <dialog class="app-dialog ai-model-dialog" id="ai-model-dialog" aria-labelledby="ai-model-dialog-title">
+      <form id="ai-model-form">
+        <div class="dialog-heading ai-model-dialog-heading">
+          <h2 id="ai-model-dialog-title" tabindex="-1" autofocus>新增模型</h2>
+        </div>
+        <div class="ai-model-form-fields">
+          <div class="ai-model-form-section">
+            <div class="ai-model-field">
+              <span id="ai-provider-label">供应商</span>
+              <div class="ai-provider-select" id="ai-provider-select">
+                <button class="ai-provider-trigger" id="ai-provider-trigger" type="button" role="combobox" aria-labelledby="ai-provider-label" aria-haspopup="listbox" aria-controls="ai-provider-options" aria-expanded="false">
+                  <span id="ai-provider-value">OpenAI</span>
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+                </button>
+                <div class="ai-provider-options" id="ai-provider-options" role="listbox" aria-labelledby="ai-provider-label" hidden>
+                  <button class="ai-provider-option is-selected" id="ai-provider-openai" data-provider-option="openai" type="button" role="option" aria-selected="true" tabindex="-1">OpenAI</button>
+                  <button class="ai-provider-option" id="ai-provider-anthropic" data-provider-option="anthropic" type="button" role="option" aria-selected="false" tabindex="-1">Claude</button>
+                  <button class="ai-provider-option" id="ai-provider-google" data-provider-option="google" type="button" role="option" aria-selected="false" tabindex="-1">Google Gemini</button>
+                  <button class="ai-provider-option" id="ai-provider-zhipu" data-provider-option="zhipu" type="button" role="option" aria-selected="false" tabindex="-1">智谱 GLM</button>
+                  <button class="ai-provider-option" id="ai-provider-zhipu-coding" data-provider-option="zhipu-coding" type="button" role="option" aria-selected="false" tabindex="-1">智谱 Coding Plan</button>
+                  <button class="ai-provider-option" id="ai-provider-openai-compatible" data-provider-option="openai-compatible" type="button" role="option" aria-selected="false" tabindex="-1">自定义接口</button>
+                </div>
+              </div>
+              <input name="provider" type="hidden" value="openai" />
+            </div>
+          </div>
+          <div class="ai-model-form-section">
+            <label class="ai-model-field">
+              <span>模型标识</span>
+              <input name="model_name" type="text" maxlength="255" required autocomplete="off" spellcheck="false" placeholder="输入模型 ID" />
+            </label>
+            <label class="ai-model-field" id="ai-model-url-field" hidden>
+              <span>API 地址</span>
+              <input name="base_url" type="url" maxlength="2048" disabled autocomplete="off" spellcheck="false" placeholder="https://example.com/v1" />
+            </label>
+            <button class="ai-model-text-button" id="ai-model-reset-url" type="button" hidden>恢复官方地址</button>
+            <div class="ai-model-field">
+              <span><label for="ai-model-api-key">API Key</label></span>
+              <div class="ai-model-key-input">
+                <input id="ai-model-api-key" name="api_key" type="password" maxlength="4096" required autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="输入 API Key" />
+                <button class="ai-model-key-toggle" id="ai-model-key-toggle" type="button" aria-label="显示 API Key" title="显示 API Key" aria-controls="ai-model-api-key" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path id="ai-model-key-slash" d="m3 3 18 18" hidden/></svg>
+                </button>
+              </div>
+            </div>
+            <label class="ai-model-field">
+              <span>模型名称 <small>可选</small></span>
+              <input name="name" type="text" maxlength="100" placeholder="默认使用模型标识" />
+            </label>
+            <p class="ai-model-form-error" id="ai-model-last-error" role="status" hidden></p>
+            <p class="ai-model-form-error" id="ai-model-form-error" role="alert" hidden></p>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="ai-model-dialog-cancel" type="button">取消</button>
+          <button class="dialog-confirm-button" type="submit">保存</button>
+        </div>
+      </form>
     </dialog>
     <template id="speech-model-template">
       <article class="model-option">
@@ -157,6 +220,28 @@
         <details class="speech-error" data-model-error hidden>
           <summary>错误详情</summary>
           <pre data-model-error-detail></pre>
+        </details>
+      </article>
+    </template>
+    <template id="ai-model-template">
+      <article class="model-option ai-model-option">
+        <div class="model-info">
+          <div class="model-option-content">
+            <div class="model-heading">
+              <strong data-ai-model-name></strong>
+              <span class="model-badge" data-ai-model-status role="status"></span>
+            </div>
+          </div>
+        </div>
+        <div class="model-actions">
+          <button class="secondary-button" data-ai-model-test type="button">测试连接</button>
+          <button class="secondary-button" data-ai-model-select type="button">设为默认</button>
+          <button class="secondary-button" data-ai-model-edit type="button">编辑</button>
+          <button class="secondary-button model-delete" data-ai-model-delete type="button" aria-haspopup="dialog">删除</button>
+        </div>
+        <details class="speech-error" data-ai-model-error hidden>
+          <summary>错误详情</summary>
+          <pre data-ai-model-error-detail></pre>
         </details>
       </article>
     </template>
