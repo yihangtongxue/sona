@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import logging
 import time
 from collections.abc import Sequence
 from dataclasses import asdict, replace
@@ -11,6 +12,7 @@ from .models import ModelDefinition, ModelEvent, ModelProvider
 
 PROGRESS_SAVE_INTERVAL = 3.0
 SHUTDOWN_TIMEOUT = 11.0
+logger = logging.getLogger(__name__)
 
 
 class ModelService:
@@ -43,7 +45,8 @@ class ModelService:
                 if job.get("active"):
                     job["elapsed"] = int(time.monotonic() - job["started_at"])
                 job.pop("started_at", None)
-                result.append({**record, "description": model.description, **job})
+                result.append({**record, "description": model.description,
+                               "can_transcribe": bool(model.bundle), **job})
             return result
 
     def refresh_all(self) -> list[dict[str, object]]:
@@ -105,6 +108,8 @@ class ModelService:
         return self.list_models()
 
     def _run(self, model_id: str, action: str) -> None:
+        started = time.monotonic()
+        logger.info('模型任务开始 model=%s action=%s', model_id, action)
         model = self._models[model_id]
         last_saved_at = 0.0
         last_saved_status: str | None = None
@@ -134,6 +139,7 @@ class ModelService:
                 provider_action = "download" if action == "download" else "delete" if action == "delete" else "status"
                 event = provider.run(provider_action, model, emit)
             except Exception as error:
+                logger.exception('模型操作失败 model=%s action=%s', model_id, action)
                 event = ModelEvent("unknown", "无法确认模型资源状态。", error=f"{type(error).__name__}: {error}")
             with self._lock:
                 selected = not self._closed and action == "select" and event.status == "installed"
@@ -148,7 +154,11 @@ class ModelService:
             elif action == "select" and event.status == "supported":
                 event = ModelEvent("supported", "模型尚未安装，请先下载。")
             emit(event)
+            if event.error:
+                logger.error('模型任务返回错误 model=%s action=%s status=%s error=%s',
+                             model_id, action, event.status, event.error)
         except Exception as error:
+            logger.exception('保存模型任务状态失败 model=%s action=%s', model_id, action)
             emit(ModelEvent("unknown", "无法保存模型记录，请重新检查。", error=f"{type(error).__name__}: {error}"))
         finally:
             with self._lock:
@@ -157,6 +167,8 @@ class ModelService:
                 job["active"] = False
                 job["cancelling"] = False
                 self._workers.discard(threading.current_thread())
+                logger.info('模型任务结束 model=%s action=%s status=%s elapsed=%.2fs',
+                            model_id, action, job['status'], time.monotonic() - started)
 
     def close(self) -> None:
         with self._lock:

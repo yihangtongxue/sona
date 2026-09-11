@@ -1,6 +1,8 @@
 import { openModelSettings } from "./models.js";
+import { openAccelerationSettings } from "./acceleration.js";
 import { formatBytes } from "./format.js";
 import { importAudio, openAudioLibrary } from "./library.js";
+import { showToast } from "./toast.js";
 
 const navigationItems = document.querySelectorAll("[data-view]");
 const panels = document.querySelectorAll("[data-panel]");
@@ -8,7 +10,6 @@ const fileInput = document.querySelector("#audio-file");
 const dropZone = document.querySelector("#drop-zone");
 const selectedFile = document.querySelector("#selected-file");
 const uploadTriggers = document.querySelectorAll("[data-upload-trigger]");
-const fileFeedback = document.querySelector("#file-feedback");
 const clearFileButton = document.querySelector("#clear-file");
 let selectedAudioFile = null;
 let dragDepth = 0;
@@ -25,8 +26,12 @@ function showView(viewName) {
   panels.forEach((panel) => {
     panel.hidden = panel.dataset.panel !== viewName;
   });
-  if (viewName === "settings") openModelSettings();
+  if (viewName === "settings") {
+    openModelSettings();
+    openAccelerationSettings();
+  }
   if (viewName === "library") openAudioLibrary();
+  window.dispatchEvent(new CustomEvent("view-changed", { detail: viewName }));
 }
 
 function renderSelectedFile() {
@@ -38,20 +43,19 @@ function renderSelectedFile() {
 async function selectAudioFile(files) {
   if (importing) return;
   if (!files.length) return; // Cancelling the picker preserves the previous file.
-  fileFeedback.textContent = "";
   const file = files[0];
   if (files.length !== 1) {
-    fileFeedback.textContent = "请一次选择一个音频文件。";
+    showToast("请一次选择一个音频文件。");
     return;
   }
   const audioExtension = /\.(mp3|wav|m4a|aac|flac|ogg|opus|aiff?|wma)$/i.test(file.name);
   const genericType = !file.type || file.type === "application/octet-stream";
   if (!file.type.startsWith("audio/") && !(genericType && audioExtension)) {
-    fileFeedback.textContent = "请选择音频文件，例如 MP3、WAV 或 M4A。";
+    showToast("请选择音频文件，例如 MP3、WAV 或 M4A。");
     return;
   }
   if (file.size === 0) {
-    fileFeedback.textContent = "这个文件是空的，请选择其他音频文件。";
+    showToast("这个文件是空的，请选择其他音频文件。", "error");
     return;
   }
   importing = true;
@@ -66,9 +70,11 @@ async function selectAudioFile(files) {
       selectedFile.textContent = `正在导入：${file.name}（${progress}%）`;
     }, () => importCancelled);
     selectedAudioFile = { name: file.name, size: file.size };
+    showView("library");
+    showToast(`已导入“${file.name}”。`, "success");
   } catch (error) {
-    fileFeedback.textContent = error.name === "AbortError" ? "已取消导入。"
-      : `导入失败：${String(error?.message ?? error)}`;
+    if (error?.name === "AbortError") showToast("已取消导入。");
+    else showToast(`导入失败：${String(error?.message ?? error)}`, "error");
   } finally {
     importing = false;
     uploadTriggers.forEach((button) => { button.disabled = false; });
@@ -80,6 +86,7 @@ async function selectAudioFile(files) {
 }
 
 navigationItems.forEach((item) => item.addEventListener("click", () => showView(item.dataset.view)));
+window.addEventListener("open-model-settings", () => showView("settings"));
 uploadTriggers.forEach((trigger) => trigger.addEventListener("click", () => {
   if (importing) return;
   showView("upload");
@@ -102,7 +109,6 @@ clearFileButton.addEventListener("click", () => {
   }
   selectedAudioFile = null;
   fileInput.value = "";
-  fileFeedback.textContent = "";
   renderSelectedFile();
   dropZone.focus();
 });

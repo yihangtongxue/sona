@@ -8,7 +8,7 @@ from pathlib import Path
 from .models import ModelDefinition, ModelEvent
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 MIGRATIONS = {
     1: (
         """CREATE TABLE models (
@@ -47,6 +47,45 @@ MIGRATIONS = {
             size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
             imported_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         )""",
+    ),
+    4: (
+        """CREATE TABLE transcription_tasks (
+            audio_id TEXT PRIMARY KEY REFERENCES audio_files(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'waiting_model'
+                CHECK(status IN ('waiting_model','queued','transcribing','cancelling',
+                                 'completed','failed','cancelled')),
+            model_id TEXT,
+            engine TEXT,
+            model_revision TEXT,
+            attempt INTEGER NOT NULL DEFAULT 0,
+            detail TEXT NOT NULL DEFAULT '',
+            error TEXT NOT NULL DEFAULT '',
+            device TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )""",
+        """CREATE INDEX transcription_queue ON transcription_tasks(status, created_at)""",
+        """CREATE TABLE transcription_results (
+            audio_id TEXT PRIMARY KEY REFERENCES audio_files(id) ON DELETE CASCADE,
+            text TEXT NOT NULL,
+            segments_json TEXT NOT NULL,
+            language TEXT NOT NULL,
+            duration REAL NOT NULL,
+            model_id TEXT NOT NULL,
+            engine TEXT NOT NULL,
+            model_revision TEXT NOT NULL,
+            device TEXT NOT NULL,
+            completed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )""",
+        # Existing imports join the same queue when the feature is first enabled.
+        "INSERT INTO transcription_tasks(audio_id) SELECT id FROM audio_files",
+        """CREATE TRIGGER enqueue_import AFTER INSERT ON audio_files BEGIN
+            INSERT INTO transcription_tasks(audio_id, model_id, status)
+            VALUES (NEW.id, (SELECT s.model_id FROM model_selections s
+                JOIN models m ON m.id=s.model_id WHERE s.kind='speech' AND m.provider='whisper'),
+                CASE WHEN EXISTS(SELECT 1 FROM model_selections s JOIN models m ON m.id=s.model_id
+                    WHERE s.kind='speech' AND m.provider='whisper') THEN 'queued' ELSE 'waiting_model' END);
+        END""",
     ),
 }
 

@@ -27,6 +27,10 @@ class AppPaths:
     def audio_dir(self) -> Path:
         return self.data_dir / "audio"
 
+    @property
+    def acceleration_dir(self) -> Path:
+        return self.data_dir / "acceleration"
+
 
 def get_app_paths() -> AppPaths:
     project_root = Path(__file__).resolve().parents[2]

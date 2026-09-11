@@ -23,7 +23,7 @@
           </button>
           <button class="nav-item" type="button" data-view="settings">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h8m4 0h4M4 17h3m4 0h9M12 4v6m-5 4v6" /></svg>
-            <span>模型设置</span>
+            <span>设置</span>
           </button>
         </nav>
       </aside>
@@ -40,23 +40,51 @@
             <p class="selected-file" id="selected-file" aria-live="polite"></p>
             <button class="secondary-button" id="clear-file" type="button" hidden>取消选择</button>
           </div>
-          <p class="file-feedback" id="file-feedback" role="status"></p>
         </section>
         <section class="view" data-panel="library" aria-label="我的音频" hidden>
-          <div class="audio-table-wrap">
+          <div class="audio-table-wrap" id="audio-table-region">
             <table class="audio-table" aria-label="历史音频">
-              <thead><tr><th scope="col">文件名</th><th scope="col">大小</th><th scope="col">导入时间</th><th scope="col" class="audio-operations">操作</th></tr></thead>
-              <tbody id="audio-list"><tr><td colspan="4" class="audio-empty">正在读取…</td></tr></tbody>
+              <thead><tr><th scope="col">文件名</th><th scope="col">大小</th><th scope="col">导入时间</th><th scope="col">状态</th><th scope="col" class="audio-operations">操作</th></tr></thead>
+              <tbody id="audio-list"><tr><td colspan="5" class="audio-empty">正在读取…</td></tr></tbody>
             </table>
           </div>
+          <article id="transcript" class="transcript" aria-labelledby="transcript-title" hidden>
+            <div class="transcript-toolbar">
+              <button type="button" class="secondary-button" id="transcript-back">返回列表</button>
+              <div class="transcript-actions">
+                <button type="button" class="secondary-button" id="transcript-open">打开音频</button>
+                <button type="button" class="secondary-button" id="transcript-copy">复制全文</button>
+              </div>
+            </div>
+            <h2 id="transcript-title" tabindex="-1"></h2>
+            <div id="transcript-content" class="transcript-content"></div>
+          </article>
           <div class="audio-feedback" id="audio-feedback" hidden>
             <p id="audio-feedback-message" role="status"></p>
             <button class="secondary-button" type="button" id="audio-retry">重新加载</button>
           </div>
         </section>
         <section class="view settings-view" data-panel="settings" aria-labelledby="settings-title" hidden>
-          <h1 class="sr-only" id="settings-title">模型设置</h1>
+          <h1 class="sr-only" id="settings-title">设置</h1>
           <div class="settings-groups">
+            <section class="settings-group" aria-labelledby="acceleration-title">
+              <div class="group-heading"><h2 id="acceleration-title">转录加速</h2></div>
+              <div class="acceleration-row">
+                <div class="acceleration-info">
+                  <p id="acceleration-status" role="status">正在检查…</p>
+                  <small id="acceleration-detail" hidden></small>
+                </div>
+                <button class="secondary-button" id="acceleration-action" type="button" hidden></button>
+              </div>
+              <div class="speech-download-progress" id="acceleration-progress-region" hidden>
+                <progress id="acceleration-progress" max="1" aria-label="加速组件下载进度"></progress>
+                <div class="speech-progress-meta"><span id="acceleration-progress-label"></span></div>
+              </div>
+              <div class="models-feedback" id="acceleration-feedback" hidden>
+                <p id="acceleration-feedback-message" role="status"></p>
+                <button class="secondary-button" id="acceleration-reconnect" type="button">重新加载</button>
+              </div>
+            </section>
             <section class="settings-group" aria-labelledby="speech-model-title">
               <div class="group-heading">
                 <h2 id="speech-model-title">音频转文字模型</h2>
@@ -82,6 +110,25 @@
         </section>
       </main>
     </div>
+    <div class="toast-region" id="toast-region" role="region" aria-label="操作提示"></div>
+    <dialog class="app-dialog confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-message">
+      <form method="dialog">
+        <h2 id="confirm-dialog-title"></h2>
+        <p class="dialog-message" id="confirm-dialog-message"></p>
+        <div class="dialog-actions">
+          <button class="secondary-button" type="submit" value="cancel" autofocus>取消</button>
+          <button class="dialog-confirm-button" id="confirm-dialog-accept" type="submit" value="confirm">确认</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog class="app-dialog task-detail-dialog" id="task-detail-dialog" aria-labelledby="task-detail-title">
+      <div class="dialog-heading">
+        <h2 id="task-detail-title">任务详情</h2>
+        <form method="dialog"><button class="secondary-button" type="submit" autofocus>关闭</button></form>
+      </div>
+      <p class="task-detail-name" id="task-detail-name"></p>
+      <p class="task-detail-content" id="task-detail-content"></p>
+    </dialog>
     <template id="speech-model-template">
       <article class="model-option">
         <div class="model-info">
@@ -98,7 +145,7 @@
         <div class="model-actions">
           <button class="secondary-button model-action" data-model-action type="button"></button>
           <button class="secondary-button" data-model-pause type="button" hidden>暂停下载</button>
-          <button class="secondary-button model-delete" data-model-delete type="button" hidden>删除</button>
+          <button class="secondary-button model-delete" data-model-delete type="button" aria-haspopup="dialog" hidden>删除</button>
         </div>
         <div class="speech-download-progress" data-model-progress-region hidden>
           <progress data-model-progress max="1" aria-label="模型下载进度"></progress>

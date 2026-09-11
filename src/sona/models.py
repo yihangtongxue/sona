@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import json
+import platform
+import sys
+from pathlib import Path
 from typing import Protocol
 
 
@@ -18,13 +22,14 @@ class ModelDefinition:
     artifact_sha256: str | None = None
     artifact_filename: str | None = None
     artifact_version: str | None = None
+    bundle: dict | None = None
 
 
 BUILTIN_MODELS = (
     ModelDefinition(
         id="apple-speech-zh-cn", provider="apple-speech", name="Apple Speech",
         kind="speech", locale="zh-CN", storage="system",
-        description="macOS 26 及以上系统管理的简体中文离线语音资源。",
+        description="Apple 提供的中文语音识别，转录功能暂未开放。",
     ),
     ModelDefinition(
         id="whisper-small", provider="whisper", name="Whisper Small",
@@ -47,7 +52,7 @@ BUILTIN_MODELS = (
     ModelDefinition(
         id="whisper-turbo", provider="whisper", name="Whisper Turbo",
         kind="speech", locale="multilingual", storage="managed",
-        description="速度优先的 Whisper large-v3-turbo 多语言模型。",
+        description="转录速度优先，支持多种语言。",
         artifact_url="https://openaipublic.azureedge.net/main/whisper/models/"
         "aff26ae408abcba5fbf8813c21e62b0941638c5f6eebfb145be0c9839262a19a/large-v3-turbo.pt",
         artifact_sha256="aff26ae408abcba5fbf8813c21e62b0941638c5f6eebfb145be0c9839262a19a",
@@ -56,12 +61,29 @@ BUILTIN_MODELS = (
     ModelDefinition(
         id="whisper-large-v3", provider="whisper", name="Whisper Large V3",
         kind="speech", locale="multilingual", storage="managed",
-        description="精度优先的 Whisper large-v3 多语言模型。",
+        description="识别效果优先，支持多种语言。",
         artifact_url="https://openaipublic.azureedge.net/main/whisper/models/"
         "e5b1a55b89c1367dacf97e3e19bfd829a01529dbfdeefa8caeb59b3f1b81dadb/large-v3.pt",
         artifact_sha256="e5b1a55b89c1367dacf97e3e19bfd829a01529dbfdeefa8caeb59b3f1b81dadb",
         artifact_filename="large-v3.pt", artifact_version="large-v3",
     ),
+)
+
+
+def transcription_engine() -> str:
+    return "mlx-whisper" if sys.platform == "darwin" else "faster-whisper"
+
+
+def engine_supported() -> bool:
+    return sys.platform != "darwin" or platform.machine().lower() == "arm64"
+
+
+# Keep stable model IDs and legacy checkpoint metadata for migration; new
+# installations use a pinned, engine-specific bundle with verified file hashes.
+_catalog = json.loads(Path(__file__).with_name("model_catalog.json").read_text(encoding="utf-8"))
+BUILTIN_MODELS = tuple(
+    replace(model, bundle=_catalog[transcription_engine()].get(model.id))
+    for model in BUILTIN_MODELS
 )
 
 

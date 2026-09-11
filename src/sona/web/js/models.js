@@ -1,4 +1,6 @@
 import { formatBytes } from "./format.js";
+import { showToast } from "./toast.js";
+import { confirmAction } from "./dialog.js";
 
 const list = document.querySelector("#speech-models");
 const template = document.querySelector("#speech-model-template");
@@ -8,6 +10,7 @@ const reconnectButton = document.querySelector("#models-reconnect");
 const rows = new Map();
 let models = [];
 let requestInFlight = false;
+let confirmingDeletion = false;
 let pollTimer;
 let connected = true;
 let hasLoaded = false;
@@ -15,10 +18,10 @@ let requestQueue = Promise.resolve();
 
 const statusLabels = {
   unchecked: "待确认", starting: "启动中", checking: "检查中",
-  preparing: "准备中", downloading: "下载中", verifying: "确认中",
+  preparing: "准备中", downloading: "下载中", verifying: "检查中",
   installed: "已安装", waiting: "等待系统", supported: "未安装",
   unsupported: "不支持", failed: "失败", unknown: "状态未知",
-  locked: "其他实例处理中", paused: "已暂停",
+  locked: "使用中", paused: "已暂停",
 };
 const terminalStatuses = new Set(["installed", "waiting", "supported", "unsupported", "failed", "unknown", "locked", "paused"]);
 
@@ -55,7 +58,6 @@ function requestModels(method, modelId) {
 }
 
 async function performRequest(method, modelId, isBackgroundPoll) {
-  let succeeded = false;
   try {
     if (!window.pywebview?.api) throw new Error("桌面应用连接尚未就绪。");
     const api = window.pywebview.api;
@@ -65,9 +67,22 @@ async function performRequest(method, modelId, isBackgroundPoll) {
     hasLoaded = true;
     connected = true;
     feedback.hidden = true;
-    succeeded = true;
+    const notices = {
+      download_model: "已提交模型下载请求。",
+      pause_model: "已提交暂停下载请求。",
+      select_model: "已提交默认模型切换请求。",
+      delete_model: "已提交模型清理请求。",
+    };
+    if (notices[method]) {
+      const model = models.find((item) => item.id === modelId);
+      if (model?.status === "failed" && !model.active) {
+        showToast(`模型操作失败：${model.error || model.detail || "请查看模型状态。"}`, "error");
+      } else showToast(notices[method]);
+    }
   } catch (error) {
-    showConnectionError(error);
+    if (modelId !== undefined && connected && window.pywebview?.api) {
+      showToast(`模型操作失败：${String(error?.message ?? error)}`, "error");
+    } else showConnectionError(error);
   } finally {
     if (!isBackgroundPoll) {
       requestInFlight = false;
@@ -75,7 +90,7 @@ async function performRequest(method, modelId, isBackgroundPoll) {
     }
     updateRows();
     clearTimeout(pollTimer);
-    if (succeeded && !requestInFlight && models.some((model) => model.active)) {
+    if (connected && !requestInFlight && models.some((model) => model.active)) {
       pollTimer = setTimeout(() => requestModels("list_models"), 600);
     }
   }
@@ -89,7 +104,7 @@ function getAction(model) {
     const label = terminalStatuses.has(model.status) ? "保存中" : statusLabels[model.status] ?? "处理中";
     return { method: "refresh_model", label: model.action === "select" ? "正在确认" : label };
   }
-  if (model.status === "installed" && !model.selected) {
+  if (model.status === "installed" && !model.selected && model.can_transcribe) {
     return { method: "select_model", label: "设为默认" };
   }
   if (["supported", "paused"].includes(model.status)) {
@@ -130,13 +145,33 @@ function updateRows() {
         const action = getAction(current);
         requestModels(action.method, current.id);
       });
-      row.querySelector("[data-model-delete]").addEventListener("click", () => {
+      row.querySelector("[data-model-delete]").addEventListener("click", async () => {
         const current = models.find((item) => item.id === model.id);
-        if (!current || current.active || requestInFlight) return;
-        const description = current.status === "installed" ? "模型及未完成下载" : "本机模型资源及未完成下载";
-        const selectionNote = current.selected ? "成功清理后会取消默认选择。" : "";
-        if (!window.confirm(`确定要清理“${current.name}”吗？${description}将被移除。${selectionNote}`)) return;
-        requestModels("delete_model", current.id);
+        if (!current || current.active || requestInFlight || confirmingDeletion || !connected) return;
+        const confirmation = current.status === "installed"
+          ? `将删除“${current.name}”。使用前需要重新下载。`
+          : `将清理“${current.name}”已下载的文件，下次下载将重新开始。`;
+        const selectionNote = current.selected ? "\n删除后需要重新选择默认模型。" : "";
+        confirmingDeletion = true;
+        let confirmed;
+        try {
+          confirmed = await confirmAction({
+            title: current.status === "installed" ? "删除模型？" : "清理下载文件？",
+            message: confirmation + selectionNote,
+            confirmLabel: current.status === "installed" ? "删除模型" : "清理文件",
+            destructive: true,
+            getReturnFocus: () => rows.get(current.id)?.querySelector("[data-model-delete]"),
+          });
+        } finally { confirmingDeletion = false; }
+        if (!confirmed) return;
+        const latest = models.find((item) => item.id === current.id);
+        if (!latest || latest.active || latest.status === "locked" || requestInFlight || !connected
+          || latest.storage !== "managed" || !(latest.has_files || latest.status === "installed")
+          || latest.selected !== current.selected || latest.status !== current.status) {
+          showToast("模型状态已变化，请查看当前状态后重新操作。");
+          return;
+        }
+        requestModels("delete_model", latest.id);
       });
       row.querySelector("[data-model-pause]").addEventListener("click", () => {
         const current = models.find((item) => item.id === model.id);
@@ -162,11 +197,11 @@ function renderModel(row, model) {
   description.hidden = !model.description;
   const detail = find("[data-model-detail]");
   detail.textContent = model.cancelling
-    ? "正在暂停；等待当前网络读取或文件操作结束。" : model.detail;
+    ? "正在暂停，请稍候。" : model.detail;
   // Routine state already appears in the badge/progress. Keep explanations for
   // failures, availability restrictions and unfinished resources visible.
-  detail.hidden = !connected || !(model.cancelling || model.error
-    || ["unknown", "unsupported", "failed", "locked", "waiting", "paused"].includes(model.status)
+  detail.hidden = !connected || !detail.textContent || !(model.cancelling || model.error
+    || ["unknown", "unsupported", "failed", "locked", "waiting"].includes(model.status)
     || (model.status === "supported" && model.has_files));
   const size = find("[data-model-size]");
   size.hidden = model.storage !== "managed" || showProgress
@@ -179,7 +214,7 @@ function renderModel(row, model) {
   const badge = find("[data-model-status]");
   badge.textContent = !connected ? "连接异常"
     : busy ? action.label
-    : ready && model.selected ? "默认模型" : statusLabels[model.status] ?? "状态未知";
+    : ready && model.selected && model.can_transcribe ? "默认模型" : statusLabels[model.status] ?? "状态未知";
   badge.classList.toggle("is-muted", connected && !busy
     && ["unchecked", "supported", "unsupported", "paused"].includes(model.status));
   badge.classList.toggle("is-unavailable", !connected || ["failed", "unknown"].includes(model.status));

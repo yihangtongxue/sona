@@ -78,7 +78,7 @@ class AudioLibraryTests(unittest.TestCase):
         self.assertEqual(self.library.list_files(), [])
         self.assertFalse((self.audio / f"{identifier}.wav").exists())
 
-    def test_failed_file_removal_restores_record_and_file(self):
+    def test_tombstone_cleanup_failure_keeps_committed_deletion(self):
         identifier = self.import_file()
         original_unlink = Path.unlink
 
@@ -88,10 +88,12 @@ class AudioLibraryTests(unittest.TestCase):
             return original_unlink(path, *args, **kwargs)
 
         with patch.object(Path, "unlink", unlink):
-            with self.assertRaises(PermissionError):
-                self.library.delete_file(identifier)
-        self.assertEqual(self.library.list_files()[0]["id"], identifier)
-        self.assertTrue((self.audio / f"{identifier}.wav").is_file())
+            self.library.delete_file(identifier)
+        self.assertEqual(self.library.list_files(), [])
+        self.assertTrue((self.audio / f"{identifier}.deleted").is_file())
+        reopened = AudioLibrary(self.database, self.audio)
+        self.addCleanup(reopened.close)
+        self.assertFalse((self.audio / f"{identifier}.deleted").exists())
 
     def test_recover_completed_rename_before_database_commit(self):
         import uuid

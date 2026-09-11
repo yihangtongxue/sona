@@ -1,114 +1,150 @@
 # Sona
 
-Python / pywebview 桌面应用，前端使用独立的 HTML、CSS 和 JavaScript。
+Python / pywebview 本地音频转录应用。导入音频后自动排队转录，在“我的音频”中查看状态和结果。
+音频与转录内容保存在本机，不上传到远程识别服务。
 
-当前可导入音频并保存历史列表，也可管理 Apple Speech 和 Whisper 模型资源、保存默认模型选择。音频转写及 AI 模型配置尚未开放。导入的音频保存为本地副本，不发送到远程服务。
+## 运行环境
 
-## 本地开发
+| 环境 | 引擎 | 执行设备 |
+| --- | --- | --- |
+| Windows x64 | faster-whisper | 默认 CPU；用户下载并启用加速组件后使用 NVIDIA GPU |
+| Apple 芯片 Mac | mlx-whisper | Apple GPU；使用原生 ARM64 Python |
 
-需要 Python 3.13 或更高版本及 uv。在项目根目录手动执行：
+需要 Python 3.13 或更高版本及 uv。由开发者在项目根目录手动执行：
 
 ```sh
 uv sync
 uv run sona
 ```
 
-Apple Speech 资源管理需要 macOS 26 或更高版本、系统支持的设备及语言；其他平台会显示不支持。Whisper 资源管理不加载推理引擎，下载模型后仍不能执行转写。桌面运行还需要对应平台的 pywebview 图形后端。
+依赖按平台安装。Windows 可在“模型设置 → 转录加速”点击“下载并启用”，应用会准备本地运行库；不要求用户安装 CUDA SDK、复制 DLL 或修改 PATH。系统仍需要兼容的 NVIDIA 显卡驱动。正式安装包尚未制作。
 
-## 目录
+## 转录加速
+
+Windows 启动时只检查本机硬件和已有组件，不联网下载。发现可用 NVIDIA 显卡后显示下载入口和总大小（约 1.4 GiB）；只有用户点击后才下载。下载和检查期间可继续 CPU 转录。暂停、断网或应用中断后，需要用户点击继续 / 重试，不在重启时自动恢复网络传输。
+
+组件固定为 NVIDIA 官方 CUDA 12.8（cuBLAS、CUDA Runtime、NVRTC）与 cuDNN 9.8 的 Windows x64 归档，版本、字节数和 SHA-256 存放在 `acceleration/catalog.py`。来源为 [CUDA 官方清单](https://developer.download.nvidia.com/compute/cuda/redist/redistrib_12.8.1.json) 和 [cuDNN 官方清单](https://developer.download.nvidia.com/compute/cudnn/redist/redistrib_9.8.0.json)。只解包运行所需的 DLL 和许可证，保存在应用数据目录，不改变系统设置。
+
+检查在独立子进程进行：读取驱动与设备能力、校验文件、加载完整运行库，再实际执行 cuBLAS 矩阵乘法与 cuDNN 卷积并核对数值。成功后才允许新任务使用显卡；这不保证任意大模型都能装入显存，实际识别仍有独立的 CPU 回退路径。
+
+“关闭加速”保留组件，只影响之后开始的任务。显卡调用失败时，本条任务在新的 CPU 进程重试一次，后续任务也使用 CPU，直到重新检查通过。用户的启用偏好与组件可用状态分别保存。下载失败显示“重试”，运算检查失败显示“重新检查”；驱动问题会提示更新显卡驱动。
+
+组件操作使用跨进程锁，状态和暂停请求通过 SQLite 共享。每次安装生成独立目录，正在转录的进程不受组件更新影响。成功安装后清理 ZIP 缓存；旧安装目录暂时保留，不提供组件卸载。技术原因只写入控制台日志，页面不展示 CUDA、DLL 或安装路径。Mac 使用 Apple 芯片加速，没有 Windows 组件下载入口。
+
+音频通过 PyAV 解码为 16 kHz 单声道数组后交给两种引擎，因此本应用的转录路径不调用外部 FFmpeg 命令。Mac 需使用原生 ARM64 Python，Rosetta / Intel Mac 不在此版本的识别支持范围内。桌面窗口仍需对应平台的 pywebview 图形后端。
+
+## 使用流程
+
+1. 在模型设置下载一个 Whisper 模型并设为默认。
+2. 选择或拖入音频。文件完整保存后自动创建任务，并进入“我的音频”。
+3. 后台一次转录一个文件，其他任务排队；切换页面不影响转录。
+4. 完成后点击“查看结果”，可查看带时间戳的文字、复制全文或使用系统播放器打开音频。
+
+没有默认模型时可以先导入，任务显示“等待模型”；选择并准备好模型后自动继续。任务已有模型时不会随默认选择变化；失败或取消后点击“重试”使用当前默认 Whisper 模型，未配置时保留原绑定。失败保留音频，不要求重新上传。
+
+“取消”停止识别进程。关闭应用时停止当前识别，下次启动重新处理整条音频，不承诺从中间时间点继续。音频和结果均持久保存；删除会移除应用副本、任务及结果，不修改用户原文件。正在转录的音频必须先取消并等待进程结束后删除。
+
+已有历史音频在数据库升级后加入待转录队列。界面只展示列表和操作，无页面说明卡片或额外添加音频入口。转录中展示真实阶段；faster-whisper 可显示已处理到的时间点，MLX 不伪造百分比。
+
+## 模型资源
+
+Small、Medium、Turbo、Large V3 保持稳定的模型 ID。Windows 下载 CTranslate2 格式，Mac 下载 MLX 格式；界面无需选择引擎。
+
+`model_catalog.json` 固定每个模型的 Hugging Face 仓库、提交版本、文件大小及校验值：
+
+- CTranslate2 Small / Medium / Large V3：`Systran` 仓库。
+- CTranslate2 Turbo：`mobiuslabsgmbh/faster-whisper-large-v3-turbo`。
+- MLX 模型：`mlx-community` 对应的 Whisper 仓库。
+
+下载使用固定提交链接和 HTTP Range 续传。大文件校验 SHA-256，普通 Git 文件按 Git blob 格式校验 SHA-1；全部资源通过后写入清单并原子移动到安装目录。状态刷新检查清单与文件大小，不重复读取数 GB 权重。模型只在显式点击下载后联网，转录时仅加载本地资源。
+
+下载可以暂停、继续及清理；不同实例下载、删除、转录同一模型使用同一文件锁。锁随进程结束释放，磁盘上的 `.lock` 文件不代表正在占用，不应手动删除。
+
+旧版 `.pt` 文件继续保存在旧目录，不会误报为新引擎的已安装资源，也不会自动转换或删除。下载新格式不会覆盖旧文件；用户明确点击该模型的“删除 / 清理文件”时，会同时清理旧格式副本和未完成下载。
+
+Apple Speech 暂保留系统资源管理能力，需要 macOS 26+ 及支持的设备、语言；当前自动转录不使用该引擎，也不能将其设为自动转录的默认模型。原生资源工具依次从 `SONA_SPEECH_HELPER`、`native/speech_asset_manager`、开发环境的 `xcrun swift` 查找。正式分发时应携带编译后的工具。Apple 系统资源跨应用共享，应用内不提供删除。
+
+## 项目结构
 
 ```text
 src/sona/
-  __init__.py       轻量命令入口
-  app.py            应用组装、窗口及生命周期
-  api.py            前后端桥接接口
-  audio_library.py  音频导入、历史记录、打开和删除
-  file_lock.py      跨进程文件互斥
-  models.py         数据类型、提供方协议与内置模型定义
-  model_service.py  后台任务、取消信号及默认选择
-  database.py       SQLite 迁移与持久化
-  paths.py          环境与数据路径
+  __init__.py        轻量入口、子进程启动保护
+  app.py             窗口、服务组装和生命周期
+  api.py             前后端桥接接口
+  audio_library.py   分块导入、历史记录、文件操作和恢复
+  database.py        SQLite 迁移、模型安装及选择记录
+  models.py          模型定义、协议和平台引擎选择
+  model_catalog.json 固定版本的模型文件清单
+  model_service.py   后台资源管理任务
+  paths.py           环境隔离与数据目录
+  file_lock.py       Windows / POSIX 跨进程锁
+  acceleration/
+    catalog.py       固定版本的 NVIDIA 官方组件清单
+    download.py      断点续传、归档校验和安全解包
+    probe.py         硬件检测、DLL 定位和实际运算检查
+    service.py       启用偏好、可用状态、后台操作和恢复
   providers/
-    apple_speech.py Apple 原生工具适配
-    whisper.py      Whisper 下载、校验、文件锁和删除
-  native/           Swift 辅助程序源文件与编译产物位置
-  web/              HTML、CSS 和原生 JavaScript
-tests/              存储、任务和下载回归测试
-docs/acceptance.md  手动验收步骤及待验证项
-assets/             开发用应用图标
+    apple_speech.py   Apple 系统资源适配
+    whisper.py        原 checkpoint 管理及复用的 HTTP 续传传输
+    whisper_bundle.py CTranslate2 / MLX 多文件资源管理
+  transcription/
+    repository.py    持久任务、状态转换、结果事务
+    service.py       单实例队列调度、子进程监督和取消
+    worker.py        音频解码、两端推理、CUDA 回退
+  native/            Apple Swift 辅助程序
+  web/               HTML、CSS、JavaScript
+tests/               存储、队列和资源下载回归用例
+docs/acceptance.md   开发者手动验收步骤
+assets/              图标
 ```
 
-## 本地数据
+## 本地数据与恢复
 
-使用 Python 标准库 `sqlite3`，不需要额外数据库服务。应用启动时自动创建数据库、迁移表结构并登记内置模型；此时不调用系统模型检测或下载。
+使用 SQLite WAL，不需要数据库服务。源码运行默认数据目录为 `.data/development/`；安装后 Windows 使用 `%LOCALAPPDATA%/Sona`，Mac 使用 `~/Library/Application Support/Sona`。
 
-通过 `SONA_ENV` 选择环境：`development`、`test`、`production`。源码工作目录默认使用 `development`；安装后的应用默认使用 `production`。
+`SONA_ENV` 支持 `development`、`test`、`production`。设置 `SONA_DATA_DIR` 时，最终路径为 `<SONA_DATA_DIR>/<SONA_ENV>/`，保持环境隔离。
 
-| 环境 | 默认数据库位置（macOS） |
-| --- | --- |
-| development | 项目内 `.data/development/sona.sqlite3` |
-| test | 项目内 `.data/test/sona.sqlite3` |
-| production | `~/Library/Application Support/Sona/sona.sqlite3` |
+```text
+<数据目录>/
+  sona.sqlite3
+  audio/<UUID>.<扩展名>
+  models/<引擎>/<模型 ID>/
+  downloads/<引擎>/<模型 ID>.<固定提交>.partial/
+  acceleration/<组件版本>-<安装 ID>/
+  acceleration/downloads/<组件版本>/
+```
 
-`SONA_DATA_DIR` 可指定数据根目录，实际数据库位于 `<SONA_DATA_DIR>/<SONA_ENV>/sona.sqlite3`，以保持环境隔离。安装后的非正式环境使用系统应用数据目录下的对应环境子目录。
+- `audio_files`：文件名、大小、扩展名、导入时间。
+- `transcription_tasks`：排队状态、模型绑定、执行次数、设备、阶段和错误。
+- `transcription_results`：全文、时间戳片段、语言、时长、模型版本和完成时间。
+- `models` / `model_installations` / `model_selections`：模型清单、安装缓存和默认选择。
+- `acceleration_settings`：加速启用偏好、组件路径、检查状态和暂停请求。
 
-数据库表：
+导入使用 256 KiB 桥接数据块。音频记录和任务通过数据库触发器在同一事务中生成；没有完成导入的文件不进队列。异常退出后恢复已保存但未登记的文件，清理未完成副本。
 
-- `models`：模型标识、提供方、用途、语言、资源管理方式和预留配置字段。
-- `model_installations`：最近查询到的资源状态、文件位置（Apple 模型为空）、查询时间和错误。
-- `model_selections`：每类用途当前选择的模型。
-- `audio_files`：已完成导入的音频文件名、大小、扩展名与导入时间。
+队列使用跨进程锁，确保同一数据目录只有一个调度者。识别使用 spawn 子进程，按执行次数防止旧结果覆盖重试。结果与“已完成”状态在同一事务提交，取消和完成之间的竞争也由数据库事务决定。
 
-表结构使用 `PRAGMA user_version` 管理版本。每次数据库操作独立创建、提交或回滚并关闭连接，后台线程不共享连接。数据库采用 WAL 模式，备份运行中的数据库应使用 SQLite 备份接口，不应只复制主文件。
+删除先将文件重命名为待清理文件，再提交数据库删除；事务失败会恢复文件。数据库已经删除但磁盘临时文件清理失败时，下次恢复继续清理，不重建缺失转录结果的历史记录。备份运行中的数据库应使用 SQLite 备份接口，不能只复制主文件。
 
-## 音频历史
+## 当前边界
 
-选择或拖入音频后，前端以 256 KiB 数据块传给本地 Python 桥接接口，避免一次加载整段音频。文件完整保存后才写入历史列表，副本位于 `<数据目录>/audio/<UUID>.<扩展名>`，与数据库一起按环境隔离。同名文件分别保存，删除只影响应用副本及对应记录，不修改原文件。
+### 控制台日志
 
-“我的音频”仅显示文件名、大小、导入时间和操作。“打开”调用系统默认应用；“删除”需要确认。导入过程中可取消，关闭应用会清理当前未完成导入。文件锁保证同一环境只有一个实例修改音频文件；异常退出后，下次取得锁时清理未完成副本，或恢复已保存但尚未登记的记录。删除使用临时重命名与恢复逻辑，失败时尽量恢复原记录与文件，重启也会检查待恢复文件。
+从终端启动应用后，默认输出 INFO 日志，包含时间、级别、进程名 / PID、任务 ID 和模块名。主进程与识别子进程都输出日志，涵盖接口调用、模型管理、音频解码、CUDA 检测、计算精度、模型加载、转录耗时、结果保存、取消和 CPU 回退。错误保留原始原因及 Python 堆栈；原生进程异常可查看退出码。
 
-音频扩展名和大小校验不替代实际解码，当前不生成时长或转写结果。
+列表轮询和成功的音频数据块不会逐条打印；faster-whisper 的片段进度最多每 10 秒记录一次，主进程每 15 秒报告正在运行的任务阶段。MLX 没有实时片段回调，因此只报告当前阶段和运行时长，不伪造进度。日志不打印音频数据或转录正文。
 
-## Whisper 模型资源管理
+需要更详细的任务事件时，可在启动前设置 `SONA_LOG_LEVEL=DEBUG`。PowerShell 示例：
 
-内置的 Whisper Small、Medium、Turbo 和 Large V3 使用 OpenAI 公开的原始 checkpoint 作为模型制品；应用只负责下载和管理这些文件，不加载或执行模型。模型文件按环境隔离，保存于 `<数据目录>/models/<模型 ID>/`；下载中的文件保存于 `<数据目录>/downloads/<模型 ID>.partial/`。
+```powershell
+$env:SONA_LOG_LEVEL = "DEBUG"
+uv run sona
+```
 
-每个安装目录都有 `manifest.json`，记录制品版本、来源、文件名、大小及 SHA-256。下载验证 HTTP Range 的续传范围，完成后校验 SHA-256，再将临时目录原子移动为正式安装目录。删除模型会同时移除正式文件和未完成下载；确认删除成功后，安装记录与默认选择在同一数据库事务中更新。删除失败会显示错误并保留选择，不会宣告成功。
+日志输出到终端标准错误流；未连接终端的正式 GUI 启动方式不会额外弹出控制台窗口，当前不写日志文件。
 
-下载中的字节进度、总字节数和制品版本约每 3 秒写入数据库，阶段变化及最终结果立即保存。界面约每 600 毫秒读取活跃任务，桥接请求串行执行；下载本身不会在应用启动时自动开始。文件大小以下载源响应为准，尚未获取且没有已下载数据时不显示大小说明；下载中总大小未知时仍显示已接收的数据量。
+### 功能范围
 
-同一模型在同一时间只允许一个 Sona 实例下载或删除；另一个实例会显示“其他实例处理中”。互斥使用 Windows 字节范围锁或 POSIX 文件锁，锁随句柄关闭或进程退出自动释放。`.lock` 文件会保留，它的存在不代表正在下载，不应手动删除或依赖其内容判断占用。
+尚未实现说话人区分、文字编辑、字幕导出、应用内播放器、AI 总结及正式安装包。音频完整解码到内存，长录音的内存占用需要实机评估；当前每条任务单独加载模型，结束后释放进程及模型内存。
 
-Whisper 下载可暂停、继续，也可清理未完成下载文件。暂停需要等待当前网络读取或文件操作结束；网络连接/读取超时配置为 10 秒，哈希校验每个数据块检查取消信号。关闭应用时，各线程共享最多 11 秒的 join 等待预算，而不是逐个累加等待时间；该预算不保证操作系统 DNS、文件系统或驱动调用的耗时。应用关闭或网络中断后，partial 文件保留，再次下载可以续传。
-
-## Apple Speech 模型流程
-
-1. 每次启动后，首次进入“模型设置”时查询资源状态，不申请下载、不创建安装请求。之后切换回来复用本次会话状态，不重复启动原生查询工具；正在进行的任务继续更新进度。手动刷新和重新连接仍可重新查询。
-2. 未安装时显示“下载”；点击后检查当前系统及语言支持并请求系统下载安装。
-3. 下载阶段通过原生工具传回系统进度；完成、失败或等待系统后隐藏进度条。
-4. 已安装时显示“设为默认”；点击后重新确认资源可用，再将用户选择写入数据库。
-5. 已确认可用的当前选择显示“默认模型”，仅表示用于后续转写的偏好，没有启动语音识别。
-6. 重启后恢复选择，首次进入模型设置时重新向系统确认资源。安装记录仅为缓存，查询失败显示“状态未知”，不会误报为未安装，可手动重新检查。
-7. 系统仍在下载或等待网络恢复时显示“等待系统”，可点击“刷新状态”重新查询。
-
-Apple 资源由 macOS 管理和跨应用共享，不保存在上述应用数据目录内。因此应用配置按环境隔离，但 Apple 系统模型不会按环境复制。
-
-当前实现使用 macOS 26+ 的 `SpeechTranscriber` 和 `AssetInventory`，并由系统检查设备、语言是否支持。原生工具的调用顺序：
-
-1. `SONA_SPEECH_HELPER` 指定的可执行文件。
-2. `src/sona/native/speech_asset_manager` 同目录编译产物。
-3. 开发环境使用 `xcrun swift` 运行 `speech_asset_manager.swift`，需要支持 macOS 26 SDK 的 Xcode / Command Line Tools。
-
-正式打包时应携带编译好的辅助程序，不能要求终端用户安装开发工具。查询最多等待 120 秒，下载请求最多等待 1 小时；超时停止辅助进程，已提交的系统下载可能继续，可重新查询状态。Apple 资源不提供应用内暂停、删除入口。
-
-## 后续模型扩展
-
-在 `models.py` 登记稳定模型标识及其制品元数据，并在 `providers/` 实现 `ModelProvider` 协议。支持的资源操作由 `run()` 执行，`cancel()` 发出取消信号，`close()` 释放任务资源；系统提供方可以明确拒绝不支持的操作。在 `app.py` 注册提供方，并将同一组模型定义传入仓库与 `ModelService`，服务不自行绑定内置清单。
-
-`ModelService` 统一负责后台任务和选择持久化，前端按模型列表渲染，不包含 Apple 模型 ID 的特判。模型文件保持独立存储，数据库只记录安装元数据。
-
-## 验收与测试
-
-运行命令、测试覆盖范围和人工检查步骤见 [验收文档](docs/acceptance.md)。测试使用模拟提供方、本地小文件和模拟 HTTP 响应，不下载真实模型或调用 Apple 下载接口。
-
-接口参考：[Apple AssetInventory](https://developer.apple.com/documentation/speech/assetinventory)、[Python sqlite3](https://docs.python.org/3.13/library/sqlite3.html)。
+本次仅编写实现、更新依赖锁文件和进行静态检查，未启动应用、运行测试或下载真实模型。验收步骤见 [docs/acceptance.md](docs/acceptance.md)。

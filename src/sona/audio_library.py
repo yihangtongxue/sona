@@ -39,6 +39,7 @@ class AudioLibrary:
     def _connection(self):
         connection = sqlite3.connect(self._database, timeout=10)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
         try:
             with connection:
                 yield connection
@@ -96,7 +97,11 @@ class AudioLibrary:
     def list_files(self) -> list[dict]:
         with self._connection() as connection:
             records = [dict(row) for row in connection.execute(
-                "SELECT * FROM audio_files ORDER BY imported_at DESC, id DESC",
+                """SELECT a.*, t.status AS transcription_status, t.detail AS transcription_detail,
+                    t.error AS transcription_error, t.model_id, t.device,
+                    EXISTS(SELECT 1 FROM transcription_results r WHERE r.audio_id=a.id) AS has_result
+                    FROM audio_files a LEFT JOIN transcription_tasks t ON t.audio_id=a.id
+                    ORDER BY a.imported_at DESC, a.id DESC""",
             ).fetchall()]
         return [{**record, "available": self._path(record).is_file()} for record in records]
 
@@ -219,10 +224,18 @@ class AudioLibrary:
                     record = self._get(identifier)
                     path = self._path(record)
                     tombstone = self._directory / f"{record['id']}.deleted"
-                    if path.exists():
-                        os.replace(path, tombstone)
                     try:
                         with self._connection() as connection:
+                            # Serialize task claiming with deletion. Running files
+                            # must be cancelled and their process stopped first.
+                            connection.execute("BEGIN IMMEDIATE")
+                            task = connection.execute(
+                                "SELECT status FROM transcription_tasks WHERE audio_id=?", (identifier,),
+                            ).fetchone()
+                            if task and task["status"] in {"transcribing", "cancelling"}:
+                                raise RuntimeError("请先取消转录，等待结束后再删除音频。")
+                            if path.exists():
+                                os.replace(path, tombstone)
                             connection.execute("DELETE FROM audio_files WHERE id=?", (identifier,))
                     except Exception:
                         if tombstone.exists():
@@ -231,12 +244,10 @@ class AudioLibrary:
                     try:
                         tombstone.unlink(missing_ok=True)
                     except OSError:
-                        # Restore the record before the file, so recovery can also
-                        # finish restoration if the rename itself is interrupted.
-                        self._insert(record)
-                        if tombstone.exists():
-                            os.replace(tombstone, path)
-                        raise
+                        # The DB deletion (including results) has committed. Do
+                        # not recreate a record without its transcript. Recovery
+                        # removes this tombstone the next time it holds the lock.
+                        pass
             except FileLocked as error:
                 raise RuntimeError("另一个窗口正在管理音频，请稍后重试。") from error
 

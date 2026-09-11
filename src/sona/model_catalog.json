@@ -1,0 +1,210 @@
+{
+  "faster-whisper": {
+    "whisper-small": {
+      "repo": "Systran/faster-whisper-small",
+      "revision": "536b0662742c02347bc0e980a01041f333bce120",
+      "files": [
+        {
+          "name": "config.json",
+          "size": 2370,
+          "sha256": null,
+          "git_sha1": "e5047537059bd8f182d9ca64c470201585015187"
+        },
+        {
+          "name": "model.bin",
+          "size": 483546902,
+          "sha256": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671",
+          "git_sha1": "504a7fe023f19460564a623887a9f77ea53ac708"
+        },
+        {
+          "name": "tokenizer.json",
+          "size": 2203239,
+          "sha256": null,
+          "git_sha1": "7818adb6de9fa3064d3ff81226fdd675be1f6344"
+        },
+        {
+          "name": "vocabulary.txt",
+          "size": 459861,
+          "sha256": null,
+          "git_sha1": "c9074644d9d1205686f16d411564729461324b75"
+        }
+      ]
+    },
+    "whisper-medium": {
+      "repo": "Systran/faster-whisper-medium",
+      "revision": "08e178d48790749d25932bbc082711ddcfdfbc4f",
+      "files": [
+        {
+          "name": "config.json",
+          "size": 2257,
+          "sha256": null,
+          "git_sha1": "242aa06a480a7b5509375c645097e87af5136774"
+        },
+        {
+          "name": "model.bin",
+          "size": 1527906378,
+          "sha256": "9b45e1009dcc4ab601eff815b61d80e60ce3fd8c74c1a14f4a282258286b51ae",
+          "git_sha1": "89243526876c43bec8c06b4acd15713e45a79691"
+        },
+        {
+          "name": "tokenizer.json",
+          "size": 2203239,
+          "sha256": null,
+          "git_sha1": "7818adb6de9fa3064d3ff81226fdd675be1f6344"
+        },
+        {
+          "name": "vocabulary.txt",
+          "size": 459861,
+          "sha256": null,
+          "git_sha1": "c9074644d9d1205686f16d411564729461324b75"
+        }
+      ]
+    },
+    "whisper-large-v3": {
+      "repo": "Systran/faster-whisper-large-v3",
+      "revision": "edaa852ec7e145841d8ffdb056a99866b5f0a478",
+      "files": [
+        {
+          "name": "config.json",
+          "size": 2394,
+          "sha256": null,
+          "git_sha1": "75336feae814999bae6ccccdecf177639ffc6f9d"
+        },
+        {
+          "name": "model.bin",
+          "size": 3087284237,
+          "sha256": "69f74147e3334731bc3a76048724833325d2ec74642fb52620eda87352e3d4f1",
+          "git_sha1": "e91bbba72de41ca3cdc9a656b17aa9407c7e85b6"
+        },
+        {
+          "name": "preprocessor_config.json",
+          "size": 340,
+          "sha256": null,
+          "git_sha1": "931c77a740890c46365c7ae0c9d350ba3cca908f"
+        },
+        {
+          "name": "tokenizer.json",
+          "size": 2480617,
+          "sha256": null,
+          "git_sha1": "3a5e2ba63acdcac9a19ba56cf9bd27f185bfff61"
+        },
+        {
+          "name": "vocabulary.json",
+          "size": 1068114,
+          "sha256": null,
+          "git_sha1": "0adcd01e7c237205d593b707e66dd5d7bc785d2d"
+        }
+      ]
+    },
+    "whisper-turbo": {
+      "repo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+      "revision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
+      "files": [
+        {
+          "name": "config.json",
+          "size": 2263,
+          "sha256": null,
+          "git_sha1": "0351d1d6870005e865747b781b5d7c23ea0459cd"
+        },
+        {
+          "name": "model.bin",
+          "size": 1617884929,
+          "sha256": "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da",
+          "git_sha1": "c849f26401bf079fdea48ac9f7461fdff2e743ea"
+        },
+        {
+          "name": "preprocessor_config.json",
+          "size": 340,
+          "sha256": null,
+          "git_sha1": "931c77a740890c46365c7ae0c9d350ba3cca908f"
+        },
+        {
+          "name": "tokenizer.json",
+          "size": 2710337,
+          "sha256": null,
+          "git_sha1": "17456db595adc78a973f97d69d8cb50bc87c0b1c"
+        },
+        {
+          "name": "vocabulary.json",
+          "size": 1068114,
+          "sha256": null,
+          "git_sha1": "0adcd01e7c237205d593b707e66dd5d7bc785d2d"
+        }
+      ]
+    }
+  },
+  "mlx-whisper": {
+    "whisper-small": {
+      "repo": "mlx-community/whisper-small-mlx",
+      "revision": "45f3915923c7a79a5a5b5a7d909d39aeb0e5630e",
+      "files": [
+        {
+          "name": "config.json",
+          "size": 266,
+          "sha256": null,
+          "git_sha1": "df4c65c442a30e50034ee63422b31bde60c3d407"
+        },
+        {
+          "name": "weights.npz",
+          "size": 481307592,
+          "sha256": "55b6674c9b339702d486e2b1573839a66f8ec8f821ed2886993ef717a86b09f5",
+          "git_sha1": "c1f9e8aff52b130ba385bca87165a4948012648c"
+        }
+      ]
+    },
+    "whisper-medium": {
+      "repo": "mlx-community/whisper-medium-mlx",
+      "revision": "7fc08c4eac4c316526498f147dfdee6f6303f975",
+      "files": [
+        {
+          "name": "config.json",
+          "size": 268,
+          "sha256": null,
+          "git_sha1": "96da6a75123b7642a14599c6afb516b0c1562237"
+        },
+        {
+          "name": "weights.npz",
+          "size": 1524924912,
+          "sha256": "10b597c2bcb1bcc38b2d3d24cd4f0885f461a7cd70e8444d6ad5a763ece549ea",
+          "git_sha1": "2de60162d29f1c5f57d0d0ef25656d39b24622a3"
+        }
+      ]
+    },
+    "whisper-large-v3": {
+      "repo": "mlx-community/whisper-large-v3-mlx",
+      "revision": "49e6aa286ad60c14352c404340ded53710378a11",
+      "files": [
+        {
+          "name": "config.json",
+          "size": 269,
+          "sha256": null,
+          "git_sha1": "2c626df3c540bdc0287b11725441d10e1af73680"
+        },
+        {
+          "name": "weights.npz",
+          "size": 3083520416,
+          "sha256": "05ff791ce3630fae47e7c51004e9666204d786246ec07cac6110af768099b40d",
+          "git_sha1": "70530160ef01821def1f20f1242d2a01b8f08d4f"
+        }
+      ]
+    },
+    "whisper-turbo": {
+      "repo": "mlx-community/whisper-large-v3-turbo",
+      "revision": "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb",
+      "files": [
+        {
+          "name": "config.json",
+          "size": 268,
+          "sha256": null,
+          "git_sha1": "6ac9a52a28f70a2e5681c250a470eca6e9c8cc3e"
+        },
+        {
+          "name": "weights.safetensors",
+          "size": 1613977612,
+          "sha256": "951ed3fc1203e6a62467abb2144a96ce7eafca8fa77e3704fdb8635ff3e7f8a6",
+          "git_sha1": "26b12d9fb292a7bee72610f6e7e2ec84225feab7"
+        }
+      ]
+    }
+  }
+}
