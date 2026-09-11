@@ -23,11 +23,12 @@ logger = logging.getLogger(__name__)
 
 
 class TranscriptionService:
-    def __init__(self, paths, provider, models, acceleration=None, *, apple_provider=None):
+    def __init__(self, paths, provider, models, acceleration=None, *, apple_provider=None, audio_library=None):
         self.repository = TaskRepository(paths.database)
         self._paths = paths
         self._providers = {'whisper': provider, 'apple-speech': apple_provider}
         self._acceleration = acceleration
+        self._audio_library = audio_library
         self._models = {model.id: model for model in models if model.can_transcribe}
         self._closed = threading.Event()
         self._context = multiprocessing.get_context('spawn')
@@ -44,8 +45,17 @@ class TranscriptionService:
                     logger.info('已取得转录队列调度权，恢复未完成任务')
                     waiting_for_owner = False
                     self.repository.recover()
+                    next_cleanup = 0.0
                     while not self._closed.is_set():
-                        if not self._next():
+                        if time.monotonic() >= next_cleanup:
+                            self._cleanup_completed_audio()
+                            next_cleanup = time.monotonic() + 30
+                        if self._next():
+                            # _next returns only after the worker has exited and
+                            # its result transaction / cancellation has settled.
+                            self._cleanup_completed_audio()
+                            next_cleanup = time.monotonic() + 30
+                        else:
                             self._closed.wait(2)
             except FileLocked:
                 if not waiting_for_owner:
@@ -55,6 +65,15 @@ class TranscriptionService:
             except Exception:
                 logger.exception('Transcription queue failed; retrying')
                 self._closed.wait(2)
+
+    def _cleanup_completed_audio(self):
+        if self._audio_library is None:
+            return
+        try:
+            self._audio_library.cleanup_completed()
+        except Exception:
+            # Cleanup must never turn a persisted transcript into a failed task.
+            logger.exception('音频副本清理暂未完成，将稍后重试')
 
     def _next(self):
         states = {}

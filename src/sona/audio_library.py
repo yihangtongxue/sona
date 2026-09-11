@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import sqlite3
-import subprocess
-import sys
 import threading
 import uuid
 from contextlib import contextmanager
@@ -16,6 +15,7 @@ from .file_lock import FileLocked, exclusive_file_lock
 
 CHUNK_SIZE = 256 * 1024
 AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".aif", ".aiff", ".wma"}
+logger = logging.getLogger(__name__)
 
 
 class AudioLibrary:
@@ -104,6 +104,42 @@ class AudioLibrary:
                     ORDER BY a.imported_at DESC, a.id DESC""",
             ).fetchall()]
         return [{**record, "available": self._path(record).is_file()} for record in records]
+
+    def cleanup_completed(self) -> None:
+        """Remove only managed copies whose completed transcripts are committed.
+
+        Called by the queue owner between tasks, after worker processes exit.
+        Completed rows themselves form a durable retry set: deletion is idempotent,
+        and interrupted/failed cleanup is retried without deleting history/results.
+        """
+        with self._mutex:
+            if self._closed or self._session:
+                return
+            try:
+                with self._file_lock():
+                    self._recover()
+                    with self._connection() as connection:
+                        records = connection.execute(
+                            """SELECT a.id, a.suffix FROM audio_files a
+                               JOIN transcription_tasks t ON t.audio_id=a.id
+                               JOIN transcription_results r ON r.audio_id=a.id
+                               WHERE t.status='completed'""",
+                        ).fetchall()
+                    for record in records:
+                        try:
+                            # _path validates the UUID and extension; display names
+                            # and original user paths never participate in deletion.
+                            self._path(dict(record)).unlink()
+                        except FileNotFoundError:
+                            continue
+                        except (OSError, ValueError):
+                            logger.warning('已完成音频副本清理失败，将稍后重试',
+                                           extra={'task_id': record['id']})
+                        else:
+                            logger.info('已清理完成转录的音频副本，保留记录与文字结果',
+                                        extra={'task_id': record['id']})
+            except FileLocked:
+                pass  # Another instance is importing or deleting; retry later.
 
     def begin_import(self, name: str, size: int) -> str:
         if not isinstance(name, str) or not name or len(name) > 255 or any(c in name for c in "\\/\0"):
@@ -202,17 +238,6 @@ class AudioLibrary:
         if row is None:
             raise ValueError("音频不存在，列表可能已更新。")
         return dict(row)
-
-    def open_file(self, identifier: str) -> None:
-        record = self._get(identifier)
-        path = self._path(record)
-        if not path.is_file():
-            raise FileNotFoundError("音频文件已丢失，请重新导入。")
-        if sys.platform == "win32":
-            os.startfile(str(path))
-        else:
-            command = "open" if sys.platform == "darwin" else "xdg-open"
-            subprocess.run([command, str(path)], check=True, timeout=15, capture_output=True)
 
     def delete_file(self, identifier: str) -> None:
         with self._mutex:

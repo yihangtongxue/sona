@@ -102,6 +102,20 @@ SCHEMA = (
     """CREATE TABLE IF NOT EXISTS ai_credential_cleanup (
             key_ref TEXT PRIMARY KEY
         )""",
+    """CREATE TABLE IF NOT EXISTS manuscripts (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL DEFAULT '待整理文稿',
+            status TEXT NOT NULL DEFAULT 'queued'
+                CHECK(status IN ('queued','optimizing','completed','failed')),
+            source_text TEXT NOT NULL,
+            model_json TEXT NOT NULL,
+            body TEXT NOT NULL DEFAULT '',
+            detail TEXT NOT NULL DEFAULT '',
+            error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )""",
+    """CREATE INDEX IF NOT EXISTS manuscript_queue ON manuscripts(status, created_at)""",
 )
 
 

@@ -12,7 +12,7 @@ const transcript = document.querySelector("#transcript");
 const transcriptTitle = document.querySelector("#transcript-title");
 const transcriptContent = document.querySelector("#transcript-content");
 const copyButton = document.querySelector("#transcript-copy");
-const openButton = document.querySelector("#transcript-open");
+const optimizeButton = document.querySelector("#transcript-optimize");
 const taskDialog = document.querySelector("#task-detail-dialog");
 const taskDialogName = document.querySelector("#task-detail-name");
 const taskDialogContent = document.querySelector("#task-detail-content");
@@ -33,6 +33,7 @@ let timer;
 let currentResult = null;
 let resultRequest = 0;
 let detailRecordId = null;
+let creatingManuscript = false;
 
 function taskPresentation(record) {
   const detail = String(record.transcription_detail ?? "").trim();
@@ -130,7 +131,7 @@ function render(records) {
       const title = document.createElement("strong");
       title.textContent = record.name;
       name.append(title);
-      if (!record.available) {
+      if (!record.available && !(record.transcription_status === "completed" && record.has_result)) {
         const missing = document.createElement("small");
         missing.textContent = "文件已丢失";
         name.append(missing);
@@ -222,9 +223,9 @@ async function perform(method, record) {
     let confirmed;
     try {
       confirmed = await confirmAction({
-        title: "删除音频？",
+        title: "删除记录？",
         message: `将删除“${record.name}”及其转录结果。\n原文件不受影响。`,
-        confirmLabel: "删除音频",
+        confirmLabel: "删除记录",
         destructive: true,
         getReturnFocus: () => rows.get(record.id)?.row.querySelector('[data-method="delete_audio"]'),
       });
@@ -246,10 +247,10 @@ async function perform(method, record) {
     await enqueue(async () => {
       const value = await api()[method](record.id);
       if (method === "get_transcription") {
-        if (token === resultRequest && !panel.hidden) showResult(value, record.available);
+        if (token === resultRequest && !panel.hidden) showResult(value);
       } else {
         const notices = {
-          delete_audio: ["已删除音频及转录结果。", "success"],
+          delete_audio: ["已删除记录及转录结果。", "success"],
           retry_transcription: ["已提交重新转录请求。", "info"],
           cancel_transcription: ["已提交取消转录请求。", "info"],
         };
@@ -272,14 +273,14 @@ function timestamp(value) {
   return `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
 }
 
-function showResult(result, available) {
+function showResult(result) {
   currentResult = result;
   clearTimeout(timer);
   tableRegion.hidden = true;
   transcript.hidden = false;
   transcriptTitle.textContent = result.name;
-  openButton.disabled = !available;
   copyButton.disabled = !result.text;
+  optimizeButton.disabled = creatingManuscript || !result.text?.trim();
   transcriptContent.replaceChildren();
   if (!result.segments.length) {
     transcriptContent.textContent = result.text || "未识别到语音。";
@@ -309,13 +310,24 @@ export function openAudioLibrary() {
 }
 
 document.querySelector("#transcript-back").addEventListener("click", openAudioLibrary);
-openButton.addEventListener("click", async () => {
-  if (!currentResult) return;
+optimizeButton.addEventListener("click", async () => {
+  if (creatingManuscript || !currentResult?.text?.trim()) return;
   const result = currentResult;
-  openButton.disabled = true;
-  try { await api().open_audio(result.audio_id); }
-  catch (error) { showToast(`打开音频失败：${String(error?.message ?? error)}`, "error"); }
-  finally { if (currentResult === result) openButton.disabled = false; }
+  const token = resultRequest;
+  creatingManuscript = true;
+  optimizeButton.disabled = true;
+  optimizeButton.textContent = "正在创建";
+  try {
+    await api().optimize_transcription(result.audio_id);
+    if (token === resultRequest && !panel.hidden) window.dispatchEvent(new Event("open-manuscripts"));
+    showToast("已创建文稿，正在后台优化。", "success");
+  } catch (error) {
+    showToast(String(error?.message ?? error), "error");
+  } finally {
+    creatingManuscript = false;
+    optimizeButton.disabled = !currentResult?.text?.trim();
+    optimizeButton.textContent = "优化转录";
+  }
 });
 copyButton.addEventListener("click", async () => {
   if (!currentResult) return;

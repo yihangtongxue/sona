@@ -41,12 +41,33 @@ class AppApi:
     """Methods exposed to the desktop webview."""
 
     def __init__(self, model_service: ModelService, audio_library: AudioLibrary, transcription,
-                 acceleration=None, ai_model_service: AIModelService | None = None) -> None:
+                 acceleration=None, ai_model_service: AIModelService | None = None,
+                 manuscripts=None) -> None:
         self._model_service = model_service
         self._audio_library = audio_library
         self._transcription = transcription
         self._acceleration = acceleration
         self._ai_models = ai_model_service
+        self._manuscripts = manuscripts
+
+    @log_api_call
+    def optimize_transcription(self, identifier: str) -> str:
+        return self._manuscripts.create(identifier)
+
+    def list_manuscripts(self) -> list[dict]:
+        return self._manuscripts.repository.list_all()
+
+    @log_api_call
+    def get_manuscript(self, identifier: str) -> dict:
+        return self._manuscripts.repository.result(identifier)
+
+    @log_api_call
+    def retry_manuscript(self, identifier: str) -> None:
+        self._manuscripts.retry(identifier)
+
+    @log_api_call
+    def delete_manuscript(self, identifier: str) -> None:
+        self._manuscripts.repository.delete(identifier)
 
     def list_ai_models(self) -> list[dict[str, object]]:
         if self._ai_models is None:
@@ -116,10 +137,6 @@ class AppApi:
     @log_api_call
     def abort_audio_import(self, identifier: str) -> None:
         self._audio_library.abort_import(identifier)
-
-    @log_api_call
-    def open_audio(self, identifier: str) -> None:
-        self._audio_library.open_file(identifier)
 
     @log_api_call
     def delete_audio(self, identifier: str) -> None:

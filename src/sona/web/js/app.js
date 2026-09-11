@@ -2,6 +2,7 @@ import { openModelSettings } from "./models.js";
 import { openAIModelSettings } from "./ai-models.js";
 import { openAccelerationSettings } from "./acceleration.js";
 import { importAudio, openAudioLibrary } from "./library.js";
+import { openManuscripts } from "./manuscripts.js";
 import { showToast } from "./toast.js";
 
 const navigationItems = document.querySelectorAll("[data-view]");
@@ -32,6 +33,7 @@ function showView(viewName) {
     openAccelerationSettings();
   }
   if (viewName === "library") openAudioLibrary();
+  if (viewName === "manuscripts") openManuscripts();
   window.dispatchEvent(new CustomEvent("view-changed", { detail: viewName }));
 }
 
@@ -84,6 +86,7 @@ async function selectAudioFile(files) {
 
 navigationItems.forEach((item) => item.addEventListener("click", () => showView(item.dataset.view)));
 window.addEventListener("open-model-settings", () => showView("settings"));
+window.addEventListener("open-manuscripts", () => showView("manuscripts"));
 uploadTriggers.forEach((trigger) => trigger.addEventListener("click", () => {
   if (importing) return;
   showView("upload");

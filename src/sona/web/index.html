@@ -12,7 +12,7 @@
     <div class="shell">
       <aside class="sidebar" aria-label="主导航">
         <a class="brand" href="#upload" aria-label="Sona 首页">Sona</a>
-        <nav class="navigation" aria-label="音频功能">
+        <nav class="navigation" aria-label="功能导航">
           <button class="nav-item is-active" type="button" data-view="upload" aria-current="page">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
             <span>选择音频</span>
@@ -20,6 +20,10 @@
           <button class="nav-item" type="button" data-view="library">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H18a1 1 0 0 1 1 1v14.5A2.5 2.5 0 0 0 16.5 16H7.5A2.5 2.5 0 0 0 5 18.5v-13Z" /><path d="M8.5 7.5h7M8.5 11h5" /></svg>
             <span>我的音频</span>
+          </button>
+          <button class="nav-item" type="button" data-view="manuscripts">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Z" /><path d="M14 3v5h5M9 12h6M9 16h6" /></svg>
+            <span>文稿</span>
           </button>
           <button class="nav-item" type="button" data-view="settings">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h8m4 0h4M4 17h3m4 0h9M12 4v6m-5 4v6" /></svg>
@@ -52,8 +56,8 @@
             <div class="transcript-toolbar">
               <button type="button" class="secondary-button" id="transcript-back">返回列表</button>
               <div class="transcript-actions">
-                <button type="button" class="secondary-button" id="transcript-open">打开音频</button>
                 <button type="button" class="secondary-button" id="transcript-copy">复制全文</button>
+                <button type="button" class="secondary-button" id="transcript-optimize" title="使用默认 AI 模型整理；正文会发送到该模型的接口，可能产生费用">优化转录</button>
               </div>
             </div>
             <h2 id="transcript-title" tabindex="-1"></h2>
@@ -62,6 +66,28 @@
           <div class="audio-feedback" id="audio-feedback" hidden>
             <p id="audio-feedback-message" role="status"></p>
             <button class="secondary-button" type="button" id="audio-retry">重新加载</button>
+          </div>
+        </section>
+        <section class="view" data-panel="manuscripts" aria-label="文稿" hidden>
+          <div class="audio-table-wrap" id="manuscript-table-region">
+            <table class="audio-table manuscript-table" aria-label="文稿列表">
+              <thead><tr><th scope="col">标题</th><th scope="col">创建时间</th><th scope="col">状态</th><th scope="col" class="audio-operations">操作</th></tr></thead>
+              <tbody id="manuscript-list"><tr><td colspan="4" class="audio-empty">正在读取…</td></tr></tbody>
+            </table>
+          </div>
+          <article id="manuscript" class="transcript" aria-labelledby="manuscript-title" hidden>
+            <div class="transcript-toolbar">
+              <button type="button" class="secondary-button" id="manuscript-back">返回列表</button>
+              <button type="button" class="secondary-button" id="manuscript-copy">复制全文</button>
+            </div>
+            <div class="manuscript-reading">
+              <h2 id="manuscript-title" tabindex="-1"></h2>
+              <div id="manuscript-content" class="manuscript-content"></div>
+            </div>
+          </article>
+          <div class="audio-feedback" id="manuscript-feedback" hidden>
+            <p id="manuscript-feedback-message" role="status"></p>
+            <button class="secondary-button" type="button" id="manuscript-reload">重新加载</button>
           </div>
         </section>
         <section class="view settings-view" data-panel="settings" aria-labelledby="settings-title" hidden>

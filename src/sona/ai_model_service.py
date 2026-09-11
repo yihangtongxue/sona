@@ -6,7 +6,7 @@ import sqlite3
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import wraps
 from pathlib import Path
 from urllib.parse import urlparse
@@ -67,6 +67,12 @@ class AIModelProfile:
     base_url: str | None = None
     api_key_ref: str | None = None
     config: dict[str, object] | None = None
+
+
+@dataclass(frozen=True)
+class AIGenerationSession:
+    profile: dict
+    api_key: str = field(repr=False)
 
 
 class AIModelRepository:
@@ -308,6 +314,71 @@ class AIModelService:
         else:
             self.repository.save_test_result(identifier, success=True)
         return self.list_models()
+
+    @model_operation
+    def default_generation_profile(self) -> dict:
+        with self.repository.connection() as db:
+            row = db.execute(
+                "SELECT model_id FROM ai_model_selections WHERE feature=?", (DEFAULT_FEATURE,),
+            ).fetchone()
+        if row is None:
+            raise ValueError("请先在设置中测试 AI 模型，并将测试通过的模型设为默认。")
+        profile = self.repository.get_profile(row["model_id"])
+        if profile["status"] != "ready":
+            raise ValueError("默认 AI 模型尚未通过测试，请先到设置中测试连接。")
+        return self._generation_profile(profile)
+
+    @staticmethod
+    def _generation_profile(profile: dict) -> dict:
+        # No secret is stored in the job, and no live foreign key binds its lifetime.
+        return {key: profile[key] for key in
+                ("id", "provider", "model_name", "base_url", "api_key_ref", "config")}
+
+    @model_operation
+    def prepare_generation(self, snapshot: dict) -> AIGenerationSession:
+        try:
+            current = self.repository.get_profile(snapshot["id"])
+        except ValueError:
+            raise ModelTestError("任务使用的模型已删除，请设置默认模型后重试。") from None
+        if self._generation_profile(current) != snapshot or current["status"] != "ready":
+            raise ModelTestError("任务使用的模型配置已变化或测试未通过，请检查设置后重试。")
+        secret = self._read_secret(snapshot["api_key_ref"])
+        if not secret:
+            raise CredentialError("无法读取 API Key，请检查模型配置后重试。")
+        # Release the configuration lock before the long request; retain the key
+        # only in memory so a later model switch cannot reroute this job.
+        return AIGenerationSession(snapshot, secret)
+
+    def generate_text(self, session: AIGenerationSession, instruction: str, content: str) -> str:
+        try:
+            from litellm import completion
+
+            options = self._test_options(session.profile)
+            options.update(max_tokens=8192 if "extra_body" in options else 4096, timeout=120)
+            response = completion(
+                model=self._litellm_model(session.profile),
+                api_base=self._api_base(session.profile), api_key=session.api_key,
+                messages=[{"role": "system", "content": instruction},
+                          {"role": "user", "content": content}],
+                num_retries=0, **options,
+            )
+            choices = getattr(response, "choices", None)
+            choice = choices[0] if choices else None
+            reason = self._test_finish_reason(choice)
+            text = getattr(getattr(choice, "message", None), "content", None)
+            logger.info("AI 文本生成响应 model=%s finish_reason=%s text_chars=%d",
+                        session.profile["id"], reason, len(text) if isinstance(text, str) else 0)
+            if reason == "length":
+                raise ModelTestError("模型输出达到单次上限，文稿尚未完整生成，请换用支持更长输出的模型后重试。")
+            if reason != "stop" or not isinstance(text, str) or not text.strip():
+                raise ModelTestError("模型未返回完整正文，请检查模型权限或稍后重试。")
+            return text.strip()
+        except Exception as error:
+            # Provider exceptions may contain the full request, URL and credentials.
+            message = self._connection_error(error)
+            if message == "暂时无法完成连接测试，请核对配置后重试。":
+                message = "文稿生成失败，请检查模型配置或稍后重试。"
+            raise ModelTestError(message) from None
 
     def _test_options(self, profile: dict[str, object]) -> dict[str, object]:
         # A short final answer can still require a reasoning budget.

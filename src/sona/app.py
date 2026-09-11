@@ -12,6 +12,7 @@ from .acceleration.service import AccelerationService
 from .audio_library import AudioLibrary
 from .database import ModelRepository
 from .model_service import ModelService
+from .manuscripts import ManuscriptService
 from .models import BUILTIN_MODELS, transcription_engine
 from .logging_config import configure_logging
 from .paths import get_app_paths
@@ -39,14 +40,15 @@ def main() -> None:
     ai_model_service = AIModelService(paths.database)
     acceleration = AccelerationService(paths)
     transcription = TranscriptionService(paths, whisper_provider, BUILTIN_MODELS, acceleration,
-                                         apple_provider=apple_provider)
+                                         apple_provider=apple_provider, audio_library=audio_library)
+    manuscripts = ManuscriptService(paths.database, ai_model_service)
     web_root = Path(__file__).with_name("web")
     icon_path = Path(__file__).resolve().parents[2] / "assets" / "Sona.icns"
     try:
         webview.create_window(
             "Sona", str(web_root / "index.html"),
             width=960, height=640, min_size=(720, 480),
-            js_api=AppApi(model_service, audio_library, transcription, acceleration, ai_model_service),
+            js_api=AppApi(model_service, audio_library, transcription, acceleration, ai_model_service, manuscripts),
         )
         # pywebview's Windows backend requires an .ico file; passing the macOS
         # .icns asset makes System.Drawing fail before the window is shown.
@@ -56,6 +58,7 @@ def main() -> None:
         webview.start(**start_options)
     finally:
         logger.info('应用关闭，正在停止后台任务')
+        manuscripts.close()
         try:
             transcription.close()
         finally:
@@ -66,4 +69,4 @@ def main() -> None:
                     audio_library.close()
                 finally:
                     model_service.close()
-        logger.info('后台任务已停止，应用退出')
+        logger.info('后台任务停止请求已发送，应用退出')
