@@ -1,5 +1,6 @@
 import { showToast } from "./toast.js";
 import { confirmAction } from "./dialog.js";
+import { confirmAIUsage } from "./ai-consent.js";
 
 const panel = document.querySelector('[data-panel="manuscripts"]');
 const list = document.querySelector("#manuscript-list");
@@ -146,7 +147,10 @@ async function perform(method, record) {
       });
       if (!confirmed) return;
     }
-    const result = await api()[method](record.id);
+    if (method === "retry_manuscript" && !await confirmAIUsage(() => token === revision && !panel.hidden)) return;
+    if (token !== revision || panel.hidden) return;
+    const result = method === "retry_manuscript"
+      ? await api().retry_manuscript(record.id, true) : await api()[method](record.id);
     if (method === "get_manuscript") {
       if (token !== revision || panel.hidden) return;
       current = result;

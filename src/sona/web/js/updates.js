@@ -12,6 +12,7 @@ const check = document.querySelector("#check-update");
 const download = document.querySelector("#download-update");
 const install = document.querySelector("#install-update");
 const cancel = document.querySelector("#cancel-update");
+const exportLogs = document.querySelector("#export-diagnostics");
 let latest;
 let pending = false;
 let polling = false;
@@ -101,3 +102,12 @@ install.addEventListener("click", () => perform("install_update"));
 cancel.addEventListener("click", () => perform("cancel_update_download"));
 export function openAbout() { load(); }
 window.addEventListener("pywebviewready", load);
+exportLogs.addEventListener("click", async () => {
+  if (exportLogs.disabled) return;
+  exportLogs.disabled = true;
+  try {
+    if (await api().export_diagnostics()) showToast("日志已保存，可在反馈问题时提供。", "success");
+  } catch (error) {
+    showToast(String(error?.message ?? error), "error");
+  } finally { exportLogs.disabled = false; }
+});

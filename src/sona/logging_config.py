@@ -1,4 +1,4 @@
-"""Console logging shared by the desktop process and spawned inference workers."""
+"""Developer console output and privacy-limited, rotating local diagnostics."""
 
 import logging
 import os
@@ -25,7 +25,7 @@ def configure_logging(task_id='-'):
     logger.propagate = False
     # Only replace our own handler. Reinitialization must not duplicate output.
     for handler in tuple(logger.handlers):
-        if getattr(handler, '_sona_console', False):
+        if getattr(handler, '_sona_console', False) or getattr(handler, '_sona_diagnostics', False):
             logger.removeHandler(handler)
             handler.close()
     stream = sys.stderr or sys.__stderr__
@@ -36,3 +36,12 @@ def configure_logging(task_id='-'):
         '%(asctime)s %(levelname)-7s [%(processName)s:%(process)d] '
         '[task=%(task_id)s] %(name)s | %(message)s', datefmt='%H:%M:%S'))
     logger.addHandler(handler)
+    try:
+        from .diagnostics import DiagnosticHandler
+        from .paths import get_app_paths
+
+        diagnostics = DiagnosticHandler(get_app_paths().data_dir / "logs")
+        diagnostics.addFilter(TaskContext(task_id))
+        logger.addHandler(diagnostics)
+    except (OSError, ValueError):
+        logger.warning("本地诊断日志暂不可用，其他功能不受影响。")

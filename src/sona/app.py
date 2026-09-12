@@ -23,6 +23,8 @@ from .transcription.service import TranscriptionService
 from .activity import ActivityGate
 from .file_lock import FileLocked, exclusive_file_lock
 from .updates.service import UpdateService
+from .consent import AIUsageConsent
+from .diagnostics import export_bundle
 
 
 def main() -> None:
@@ -59,6 +61,18 @@ def _run_app(paths) -> None:
     manuscripts = ManuscriptService(paths.database, ai_model_service, activity=activity)
     updates = UpdateService(paths, activity, other_busy=lambda: audio_library.is_importing()
                             or any(record.get('active') for record in model_service.list_models()))
+
+    def export_diagnostics():
+        selected = window.create_file_dialog(webview.FileDialog.SAVE,
+            save_filename="Sona-diagnostics.zip", file_types=("ZIP 文件 (*.zip)",))
+        if not selected:
+            return False
+        destination = Path(selected if isinstance(selected, str) else selected[0])
+        if destination.suffix.lower() != ".zip":
+            raise ValueError("请使用 .zip 作为日志文件的后缀。")
+        export_bundle(paths.data_dir / "logs", destination)
+        return True
+
     web_root = Path(__file__).with_name("web")
     icon_path = (Path(__file__).with_name("assets") / "Sona.icns" if getattr(sys, "frozen", False)
                  else Path(__file__).resolve().parents[2] / "assets" / "Sona.icns")
@@ -67,7 +81,8 @@ def _run_app(paths) -> None:
             "Sona", str(web_root / "index.html"),
             width=960, height=640, min_size=(720, 480),
             js_api=AppApi(model_service, audio_library, transcription, acceleration, ai_model_service,
-                          manuscripts, updates, activity),
+                          manuscripts, updates, activity, consent=AIUsageConsent(paths.data_dir),
+                          diagnostics=export_diagnostics),
         )
         updates.bind_window(window.destroy)
         updates.start_automatic_checks()

@@ -44,7 +44,7 @@ class AppApi:
 
     def __init__(self, model_service: ModelService, audio_library: AudioLibrary, transcription,
                  acceleration=None, ai_model_service: AIModelService | None = None,
-                 manuscripts=None, updates=None, activity=None) -> None:
+                 manuscripts=None, updates=None, activity=None, consent=None, diagnostics=None) -> None:
         self._model_service = model_service
         self._audio_library = audio_library
         self._transcription = transcription
@@ -53,6 +53,18 @@ class AppApi:
         self._manuscripts = manuscripts
         self._updates = updates
         self._activity = activity or ActivityGate()
+        self._consent = consent
+        self._diagnostics = diagnostics
+
+    def ai_usage_notice_required(self) -> bool:
+        # Resolve setup problems before asking the user to approve a request
+        # that cannot run. This does not contact the model endpoint.
+        self._ai_models.default_generation_profile()
+        return self._consent.required()
+
+    @log_api_call
+    def export_diagnostics(self) -> bool:
+        return self._diagnostics()
 
     def update_status(self) -> dict:
         return self._updates.status()
@@ -70,7 +82,8 @@ class AppApi:
         return self._updates.install()
 
     @log_api_call
-    def optimize_transcription(self, identifier: str) -> str:
+    def optimize_transcription(self, identifier: str, confirmed: bool = False) -> str:
+        self._consent.require(confirmed)
         return self._manuscripts.create(identifier)
 
     def list_manuscripts(self) -> list[dict]:
@@ -81,7 +94,8 @@ class AppApi:
         return self._manuscripts.repository.result(identifier)
 
     @log_api_call
-    def retry_manuscript(self, identifier: str) -> None:
+    def retry_manuscript(self, identifier: str, confirmed: bool = False) -> None:
+        self._consent.require(confirmed)
         self._manuscripts.retry(identifier)
 
     @log_api_call

@@ -1,6 +1,7 @@
 import { formatBytes } from "./format.js";
 import { showToast } from "./toast.js";
 import { confirmAction } from "./dialog.js";
+import { confirmAIUsage } from "./ai-consent.js";
 
 const panel = document.querySelector('[data-panel="library"]');
 const list = document.querySelector("#audio-list");
@@ -316,9 +317,11 @@ optimizeButton.addEventListener("click", async () => {
   const token = resultRequest;
   creatingManuscript = true;
   optimizeButton.disabled = true;
-  optimizeButton.textContent = "正在创建";
   try {
-    await api().optimize_transcription(result.audio_id);
+    if (!await confirmAIUsage(() => token === resultRequest && !panel.hidden && currentResult === result)) return;
+    if (token !== resultRequest || panel.hidden || currentResult !== result) return;
+    optimizeButton.textContent = "正在创建";
+    await api().optimize_transcription(result.audio_id, true);
     if (token === resultRequest && !panel.hidden) window.dispatchEvent(new Event("open-manuscripts"));
     showToast("已创建文稿，正在后台优化。", "success");
   } catch (error) {

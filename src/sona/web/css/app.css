@@ -137,6 +137,9 @@ h2 { font-size: 1.125rem; font-weight: 680; line-height: 1.35; }
 .model-badge.is-unavailable { color: #b42318; background: #fef3f2; }
 .secondary-button { min-height: 34px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink); background: var(--surface); cursor: pointer; white-space: nowrap; font-size: .8125rem; font-weight: 650; }
 .secondary-button:hover:not(:disabled) { border-color: #aeb9c9; background: var(--surface-muted); }
+.diagnostics-button { border: 0; padding: 0; background: none; color: var(--ink-muted); font: inherit; cursor: pointer; }
+.diagnostics-button:hover:not(:disabled) { color: var(--accent); text-decoration: underline; }
+.diagnostics-button:disabled { opacity: .6; cursor: wait; }
 :is([data-panel="library"], [data-panel="manuscripts"], [data-panel="settings"], .app-dialog) .secondary-button { border: 0; background: var(--surface-muted); transition: background-color 150ms ease; }
 :is([data-panel="library"], [data-panel="manuscripts"], [data-panel="settings"], .app-dialog) .secondary-button:hover:not(:disabled) { background: var(--line); }
 .secondary-button:disabled { cursor: default; opacity: .6; }
