@@ -79,6 +79,13 @@ class AIGenerationSession:
 class AIModelRepository:
     def __init__(self, database) -> None:
         self.database = database
+        # Older versions kept failed models selected, preventing users from fixing them.
+        with self.connection() as db:
+            db.execute(
+                """DELETE FROM ai_model_selections WHERE feature=? AND model_id IN
+                   (SELECT id FROM ai_model_profiles WHERE status='failed')""",
+                (DEFAULT_FEATURE,),
+            )
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
@@ -221,6 +228,11 @@ class AIModelRepository:
                    last_error=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?""",
                 ("ready" if success else "failed", error, identifier),
             )
+            if not success:
+                db.execute(
+                    "DELETE FROM ai_model_selections WHERE feature=? AND model_id=?",
+                    (DEFAULT_FEATURE, identifier),
+                )
 
 
 class AIModelService:

@@ -25,6 +25,8 @@ from .file_lock import FileLocked, exclusive_file_lock
 from .updates.service import UpdateService
 from .consent import AIUsageConsent
 from .diagnostics import export_bundle
+from .podcasts.service import PodcastService
+from .localization import WEBVIEW_ZH
 
 
 def main() -> None:
@@ -59,6 +61,7 @@ def _run_app(paths) -> None:
     transcription = TranscriptionService(paths, whisper_provider, BUILTIN_MODELS, acceleration,
                                          apple_provider=apple_provider, audio_library=audio_library, activity=activity)
     manuscripts = ManuscriptService(paths.database, ai_model_service, activity=activity)
+    podcasts = PodcastService(paths, audio_library, activity)
     updates = UpdateService(paths, activity, other_busy=lambda: audio_library.is_importing()
                             or any(record.get('active') for record in model_service.list_models()))
 
@@ -82,13 +85,13 @@ def _run_app(paths) -> None:
             width=960, height=640, min_size=(720, 480),
             js_api=AppApi(model_service, audio_library, transcription, acceleration, ai_model_service,
                           manuscripts, updates, activity, consent=AIUsageConsent(paths.data_dir),
-                          diagnostics=export_diagnostics),
+                          diagnostics=export_diagnostics, podcasts=podcasts),
         )
         updates.bind_window(window.destroy)
         updates.start_automatic_checks()
         # pywebview's Windows backend requires an .ico file; passing the macOS
         # .icns asset makes System.Drawing fail before the window is shown.
-        start_options: dict[str, object] = {"http_server": True}
+        start_options: dict[str, object] = {"http_server": True, "localization": WEBVIEW_ZH}
         if sys.platform == "win32":
             start_options["gui"] = "edgechromium"
         if sys.platform == "darwin" and icon_path.is_file():
@@ -97,6 +100,7 @@ def _run_app(paths) -> None:
     finally:
         logger.info('应用关闭，正在停止后台任务')
         updates.close()
+        podcasts.close()
         manuscripts.close()
         try:
             transcription.close()

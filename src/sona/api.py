@@ -19,7 +19,7 @@ def log_api_call(function):
         method = function.__name__
         quiet = method == 'append_audio_chunk'
         # Never log upload bytes, file display names, or returned transcript text.
-        reference = args[0] if args and method != 'begin_audio_import' else '-'
+        reference = args[0] if args and method not in {'begin_audio_import', 'import_podcast'} else '-'
         if not quiet:
             logger.info('调用 %s ref=%s', method, reference)
         try:
@@ -44,7 +44,8 @@ class AppApi:
 
     def __init__(self, model_service: ModelService, audio_library: AudioLibrary, transcription,
                  acceleration=None, ai_model_service: AIModelService | None = None,
-                 manuscripts=None, updates=None, activity=None, consent=None, diagnostics=None) -> None:
+                 manuscripts=None, updates=None, activity=None, consent=None, diagnostics=None,
+                 podcasts=None) -> None:
         self._model_service = model_service
         self._audio_library = audio_library
         self._transcription = transcription
@@ -55,6 +56,7 @@ class AppApi:
         self._activity = activity or ActivityGate()
         self._consent = consent
         self._diagnostics = diagnostics
+        self._podcasts = podcasts
 
     def ai_usage_notice_required(self) -> bool:
         # Resolve setup problems before asking the user to approve a request
@@ -156,6 +158,18 @@ class AppApi:
         return self._audio_library.list_files()
 
     @log_api_call
+    def import_podcast(self, url: str) -> dict:
+        return self._podcasts.create(url)
+
+    @log_api_call
+    def cancel_podcast_import(self, identifier: str) -> None:
+        self._podcasts.cancel(identifier)
+
+    @log_api_call
+    def retry_podcast_import(self, identifier: str) -> None:
+        self._podcasts.retry(identifier)
+
+    @log_api_call
     def begin_audio_import(self, name: str, size: int) -> str:
         return self._audio_library.begin_import(name, size)
 
@@ -173,7 +187,10 @@ class AppApi:
 
     @log_api_call
     def delete_audio(self, identifier: str) -> None:
-        self._audio_library.delete_file(identifier)
+        if self._podcasts is not None:
+            self._podcasts.delete(identifier)
+        else:
+            self._audio_library.delete_file(identifier)
 
     def list_models(self) -> list[dict[str, object]]:
         return self._model_service.list_models()

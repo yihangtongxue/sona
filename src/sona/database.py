@@ -9,9 +9,9 @@ from .models import ModelDefinition, ModelEvent
 
 
 # Legacy databases may retain user_version up to 5, even after version tracking
-# was removed. Adopt the current schema as version 6; app version 1.0.0 does not
-# reset this sequence. Future structure changes require explicit migrations.
-SCHEMA_VERSION = 6
+# was removed. Version 6 adopted the current schema; version 7 adds the podcast
+# acquisition table without changing existing audio or transcription records.
+SCHEMA_VERSION = 7
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS models (
             id TEXT PRIMARY KEY,
@@ -44,6 +44,26 @@ SCHEMA = (
             suffix TEXT NOT NULL,
             size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
             imported_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        )""",
+    """CREATE TABLE IF NOT EXISTS podcast_imports (
+            id TEXT PRIMARY KEY,
+            platform TEXT NOT NULL CHECK(platform IN ('xiaoyuzhou','apple')),
+            episode_id TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '正在获取播客信息',
+            podcast_title TEXT NOT NULL DEFAULT '',
+            cover_url TEXT NOT NULL DEFAULT '',
+            duration REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'waiting_fetch'
+                CHECK(status IN ('waiting_fetch','resolving','downloading','importing',
+                                 'imported','cancelling','cancelled','failed','interrupted')),
+            stage TEXT NOT NULL DEFAULT 'resolving',
+            detail TEXT NOT NULL DEFAULT '',
+            downloaded_bytes INTEGER NOT NULL DEFAULT 0,
+            total_bytes INTEGER NOT NULL DEFAULT 0,
+            suffix TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            UNIQUE(platform, episode_id)
         )""",
     """CREATE TABLE IF NOT EXISTS transcription_tasks (
             audio_id TEXT PRIMARY KEY REFERENCES audio_files(id) ON DELETE CASCADE,

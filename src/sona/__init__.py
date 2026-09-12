@@ -20,6 +20,9 @@ def main() -> None:
     configure_logging()
     # Importing storage and domain modules must not initialize the GUI toolkit.
     try:
+        from .localization import configure_native_language
+
+        configure_native_language()
         from .app import main as run_app
 
         run_app()

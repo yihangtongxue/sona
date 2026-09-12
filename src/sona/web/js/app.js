@@ -1,10 +1,11 @@
 import { openModelSettings } from "./models.js";
 import { openAIModelSettings } from "./ai-models.js";
 import { openAccelerationSettings } from "./acceleration.js";
-import { importAudio, openAudioLibrary } from "./library.js";
+import { importAudio, openAudioLibrary, locateAudio } from "./library.js";
 import { openManuscripts } from "./manuscripts.js";
 import { showToast } from "./toast.js";
 import { openAbout } from "./updates.js";
+import { initializeImportSources } from "./import-sources.js";
 
 const navigationItems = document.querySelectorAll("[data-view]");
 const panels = document.querySelectorAll("[data-panel]");
@@ -17,6 +18,10 @@ const cancelImportButton = document.querySelector("#cancel-import");
 let dragDepth = 0;
 let importing = false;
 let importCancelled = false;
+initializeImportSources((result) => {
+  locateAudio(result.id);
+  showView("library");
+});
 
 function showView(viewName) {
   navigationItems.forEach((item) => {

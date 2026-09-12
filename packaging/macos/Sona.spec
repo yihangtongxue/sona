@@ -19,14 +19,14 @@ binaries = [(str(stage / "speech_asset_manager"), "sona/native")]
 hiddenimports = ["webview.platforms.cocoa", "keyring.backends.macOS", "certifi", "cryptography"]
 # Dynamic imports and model/tokenizer resources cannot all be inferred from the
 # GUI entry point. Collect installed packages only; never collect the workspace.
-for package in ("mlx", "mlx_whisper", "litellm", "tiktoken", "tiktoken_ext"):
+for package in ("mlx", "mlx_whisper", "litellm", "tiktoken", "tiktoken_ext", "yt_dlp"):
     package_data, package_bins, package_imports = collect_all(package)
     datas += package_data
     binaries += package_bins
     hiddenimports += package_imports
 datas += collect_data_files("webview")
 hiddenimports += collect_submodules("sona")
-for distribution in ("sona", "pywebview", "keyring", "mlx", "mlx-metal", "mlx-whisper", "litellm", "cryptography"):
+for distribution in ("sona", "pywebview", "keyring", "mlx", "mlx-metal", "mlx-whisper", "litellm", "cryptography", "yt-dlp"):
     datas += copy_metadata(distribution)
 
 a = Analysis([str(root / "packaging/macos/entry.py")], pathex=[str(root / "src")],
@@ -41,6 +41,9 @@ collection = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="Son
 app = BUNDLE(collection, name="Sona.app", icon=str(root / "assets/Sona.icns"),
              bundle_identifier=bundle_id, version=version,
              info_plist={"CFBundleName": "Sona", "CFBundleDisplayName": "Sona",
+                         "CFBundleDevelopmentRegion": "zh-Hans",
+                         "CFBundleLocalizations": ["zh-Hans"],
+                         "CFBundleAllowMixedLocalizations": True,
                          "CFBundleVersion": version, "CFBundleShortVersionString": version,
                          "SonaUpdateManifestURL": os.environ["SONA_UPDATE_MANIFEST_URL"],
                          "SonaReleaseRepository": os.environ["SONA_RELEASE_REPOSITORY"],

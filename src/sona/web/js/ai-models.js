@@ -40,6 +40,7 @@ let loaded = false;
 let requestInFlight = false;
 let requestQueue = Promise.resolve();
 let editingId = null;
+let readOnly = false;
 let saving = false;
 let activeTestId = null;
 let legacyUrlProvider = null;
@@ -68,8 +69,13 @@ function updateEditorControls() {
   if (busy) form.setAttribute("aria-busy", "true");
   else form.removeAttribute("aria-busy");
   form.querySelectorAll("button, input").forEach((control) => {
-    control.disabled = busy || (control === form.elements.base_url && urlField.hidden);
+    const readOnlyButton = readOnly && control.tagName === "BUTTON"
+      && control !== keyToggle && control !== dialogCancel;
+    control.disabled = busy || readOnlyButton || (control === form.elements.base_url && urlField.hidden);
+    if (control.tagName === "INPUT") control.readOnly = readOnly;
   });
+  saveButton.hidden = readOnly;
+  dialogCancel.textContent = readOnly ? "关闭" : "取消";
   dialogCancel.disabled = saving;
 }
 
@@ -123,7 +129,7 @@ function setProvider(provider) {
   urlField.hidden = !custom && !legacy;
   form.elements.base_url.disabled = urlField.hidden;
   form.elements.base_url.required = !urlField.hidden;
-  resetUrlButton.hidden = !legacy || custom;
+  resetUrlButton.hidden = readOnly || !legacy || custom;
   updateKeyField();
 }
 
@@ -205,6 +211,7 @@ function render() {
       row.querySelector("[data-ai-model-test]").addEventListener("click", () => runAction("test_ai_model", model.id));
       row.querySelector("[data-ai-model-select]").addEventListener("click", () => runAction("select_ai_model", model.id));
       row.querySelector("[data-ai-model-edit]").addEventListener("click", () => openEditor(model.id));
+      row.querySelector("[data-ai-model-view]").addEventListener("click", () => openEditor(model.id));
       row.querySelector("[data-ai-model-delete]").addEventListener("click", () => removeModel(model.id));
       rows.set(model.id, row);
       list.append(row);
@@ -228,11 +235,14 @@ function renderModel(row, model) {
   select.disabled = !connected || requestInFlight || status !== "ready";
   select.title = status !== "ready" ? "请先测试连接，通过后才能设为默认。" : "";
   const edit = row.querySelector("[data-ai-model-edit]");
+  edit.hidden = Boolean(model.selected);
   edit.disabled = !connected || requestInFlight || Boolean(model.selected);
-  edit.title = model.selected ? "请先设置其他默认模型。" : "";
+  const view = row.querySelector("[data-ai-model-view]");
+  view.hidden = !model.selected;
+  view.disabled = !connected || requestInFlight;
   const remove = row.querySelector("[data-ai-model-delete]");
+  remove.hidden = Boolean(model.selected);
   remove.disabled = !connected || requestInFlight || Boolean(model.selected);
-  remove.title = model.selected ? "请先设置其他默认模型。" : "";
   const errorDetails = row.querySelector("[data-ai-model-error]");
   errorDetails.hidden = status !== "failed" || !model.last_error;
   if (errorDetails.hidden) errorDetails.open = false;
@@ -241,6 +251,7 @@ function renderModel(row, model) {
 
 async function runAction(method, identifier) {
   if (requestInFlight) return;
+  const wasSelected = Boolean(models.find((model) => model.id === identifier)?.selected);
   requestInFlight = true;
   activeTestId = method === "test_ai_model" ? identifier : null;
   render();
@@ -250,7 +261,10 @@ async function runAction(method, identifier) {
     if (method === "test_ai_model") {
       const model = models.find((item) => item.id === identifier);
       if (model?.status === "ready") showToast("AI 模型连接测试成功。", "success");
-      else showToast(`AI 模型测试失败：${model?.last_error || "请检查配置。"}`, "error");
+      else {
+        const defaultNotice = wasSelected && model && !model.selected ? "已取消默认模型，可编辑配置。" : "";
+        showToast(`AI 模型测试失败：${model?.last_error || "请检查配置。"}${defaultNotice}`, "error");
+      }
     } else if (method === "select_ai_model") showToast("已设置默认 AI 模型。", "success");
     else if (method === "delete_ai_model") showToast("模型配置已删除。", "success");
   } catch (error) {
@@ -265,13 +279,10 @@ async function runAction(method, identifier) {
 async function openEditor(identifier = null) {
   if (requestInFlight || saving || dialog.open) return;
   const model = models.find((item) => item.id === identifier);
-  if (model?.selected) {
-    showToast("默认 AI 模型不能编辑，请先设置其他默认模型。", "info");
-    return;
-  }
+  readOnly = Boolean(model?.selected);
   const version = ++keyReadVersion;
   editingId = identifier;
-  dialogTitle.textContent = model ? "编辑模型" : "新增模型";
+  dialogTitle.textContent = readOnly ? "模型详情" : model ? "编辑模型" : "新增模型";
   form.reset();
   clearKey();
   closeProviderMenu();
@@ -289,7 +300,7 @@ async function openEditor(identifier = null) {
   updateEditorControls();
   if (keyLoading) form.elements.api_key.placeholder = "正在读取…";
   dialog.showModal();
-  if (model && !keyLoading) form.elements.model_name.focus();
+  if (model && !keyLoading && !readOnly) form.elements.model_name.focus();
   else dialogTitle.focus({ preventScroll: true });
   if (!keyLoading) return;
   try {
@@ -300,7 +311,9 @@ async function openEditor(identifier = null) {
     keyAutofilled = Boolean(secret);
   } catch {
     if (version !== keyReadVersion || !dialog.open) return;
-    formError.textContent = "无法回填 API Key，请检查系统凭据访问权限后重新打开，或填写新密钥。";
+    formError.textContent = readOnly
+      ? "无法读取 API Key，请检查系统凭据访问权限后重新打开。"
+      : "无法回填 API Key，请检查系统凭据访问权限后重新打开，或填写新密钥。";
     formError.hidden = false;
   } finally {
     if (version === keyReadVersion && dialog.open) {
@@ -312,7 +325,8 @@ async function openEditor(identifier = null) {
 
 async function saveModel(event) {
   event.preventDefault();
-  if (saving || keyLoading || requestInFlight) return;
+  if (readOnly || saving || keyLoading || requestInFlight) return;
+  if (models.find((item) => item.id === editingId)?.selected) return;
   if (!form.elements.api_key.value.trim()) {
     formError.textContent = "请填写 API Key。";
     formError.hidden = false;

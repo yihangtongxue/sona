@@ -15,7 +15,7 @@
         <nav class="navigation" aria-label="功能导航">
           <button class="nav-item is-active" type="button" data-view="upload" aria-current="page">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
-            <span>选择音频</span>
+            <span>导入音频</span>
           </button>
           <button class="nav-item" type="button" data-view="library">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H18a1 1 0 0 1 1 1v14.5A2.5 2.5 0 0 0 16.5 16H7.5A2.5 2.5 0 0 0 5 18.5v-13Z" /><path d="M8.5 7.5h7M8.5 11h5" /></svg>
@@ -32,14 +32,16 @@
         </nav>
       </aside>
       <main class="content">
-        <section class="view" data-panel="upload" aria-label="选择音频">
+        <section class="view import-view" data-panel="upload" aria-label="导入音频">
           <input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.aif,.aiff,.wma" hidden />
-          <button class="drop-zone" type="button" id="drop-zone" data-upload-trigger aria-describedby="audio-formats">
-            <span class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" /></svg></span>
-            <strong>选择音频文件</strong>
-            <span>或将文件拖放到这里</span>
-            <small id="audio-formats">可选择 MP3、WAV、M4A 等音频文件，一次一个</small>
-          </button>
+          <div class="import-source-grid" id="import-sources">
+            <button class="import-source-card drop-zone" type="button" id="drop-zone" data-upload-trigger aria-describedby="local-import-help">
+              <span class="source-icon source-icon-local" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 14v2m4-4v6m4-4v2" /></svg></span>
+              <strong class="source-name">本地文件</strong>
+              <span class="source-description" id="local-import-help">选择音频文件，或拖放到这里。</span>
+              <span class="source-action">选择文件<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg></span>
+            </button>
+          </div>
           <div class="import-progress" id="import-progress" hidden>
             <p class="import-status" id="import-status" aria-live="polite"></p>
             <button class="secondary-button" id="cancel-import" type="button">取消导入</button>
@@ -48,7 +50,7 @@
         <section class="view" data-panel="library" aria-label="我的音频" hidden>
           <div class="audio-table-wrap" id="audio-table-region">
             <table class="audio-table" aria-label="历史音频">
-              <thead><tr><th scope="col">文件名</th><th scope="col">大小</th><th scope="col">导入时间</th><th scope="col">状态</th><th scope="col" class="audio-operations">操作</th></tr></thead>
+              <thead><tr><th scope="col">名称</th><th scope="col">大小</th><th scope="col">导入时间</th><th scope="col">状态</th><th scope="col" class="audio-operations">操作</th></tr></thead>
               <tbody id="audio-list"><tr><td colspan="5" class="audio-empty">正在读取…</td></tr></tbody>
             </table>
           </div>
@@ -168,6 +170,37 @@
       </main>
     </div>
     <div class="toast-region" id="toast-region" role="region" aria-label="操作提示"></div>
+    <template id="podcast-source-template">
+      <button class="import-source-card" type="button" aria-haspopup="dialog" aria-controls="podcast-dialog">
+        <span class="source-icon" data-source-icon aria-hidden="true"></span>
+        <strong class="source-name" data-source-name></strong>
+        <span class="source-description" data-source-description></span>
+        <span class="source-action">粘贴链接<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg></span>
+      </button>
+    </template>
+    <dialog class="app-dialog podcast-dialog" id="podcast-dialog" aria-labelledby="podcast-title" aria-describedby="podcast-help">
+      <div class="dialog-heading">
+        <div class="podcast-dialog-heading">
+          <span class="source-icon" id="podcast-dialog-icon" aria-hidden="true"></span>
+          <h2 id="podcast-title"></h2>
+        </div>
+        <button class="podcast-dialog-close" id="podcast-close" type="button" aria-label="关闭">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+        </button>
+      </div>
+      <p class="podcast-help" id="podcast-help"></p>
+      <form class="podcast-import" id="podcast-form">
+        <label for="podcast-url">播客链接</label>
+        <input id="podcast-url" type="url" required maxlength="4096" autocomplete="off" autofocus
+               spellcheck="false" placeholder="粘贴播客链接" aria-describedby="podcast-help podcast-error" />
+        <p id="podcast-error" class="podcast-error" role="alert" hidden></p>
+        <p class="podcast-next-step">完成后，在「我的音频」查看文字。</p>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="podcast-cancel" type="button">取消</button>
+          <button class="dialog-confirm-button" id="podcast-submit" type="submit">获取并转录</button>
+        </div>
+      </form>
+    </dialog>
     <dialog class="app-dialog confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-message">
       <form method="dialog">
         <h2 id="confirm-dialog-title"></h2>
@@ -290,6 +323,7 @@
           <button class="secondary-button" data-ai-model-test type="button">测试连接</button>
           <button class="secondary-button" data-ai-model-select type="button">设为默认</button>
           <button class="secondary-button" data-ai-model-edit type="button">编辑</button>
+          <button class="secondary-button" data-ai-model-view type="button" aria-haspopup="dialog" hidden>查看详细</button>
           <button class="secondary-button model-delete" data-ai-model-delete type="button" aria-haspopup="dialog">删除</button>
         </div>
         <details class="speech-error" data-ai-model-error hidden>

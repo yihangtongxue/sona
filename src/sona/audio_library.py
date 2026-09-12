@@ -56,13 +56,17 @@ class AudioLibrary:
             raise ValueError("音频格式不受支持。")
         return self._directory / f"{identifier}{record['suffix']}"
 
-    def _insert(self, record: dict) -> None:
-        with self._connection() as connection:
-            connection.execute(
-                "INSERT OR IGNORE INTO audio_files (id, name, suffix, size_bytes, imported_at) "
-                "VALUES (?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))",
-                (record["id"], record["name"], record["suffix"], record["size_bytes"], record.get("imported_at")),
-            )
+    def _insert(self, record: dict, connection=None) -> None:
+        if connection is None:
+            with self._connection() as db:
+                self._insert(record, db)
+            return
+        connection.execute(
+            "INSERT OR IGNORE INTO audio_files (id, name, suffix, size_bytes, imported_at) "
+            "VALUES (?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))",
+            (record["id"], record["name"], record["suffix"], record["size_bytes"], record.get("imported_at")),
+        )
+        connection.execute("UPDATE podcast_imports SET status='imported', detail='' WHERE id=?", (record['id'],))
 
     def _recover(self) -> None:
         # The lock proves no live importer owns these files. Recover a completed
@@ -77,7 +81,13 @@ class AudioLibrary:
             except (ValueError, TypeError, KeyError, AttributeError):
                 valid = False
             if valid and target.is_file() and target.stat().st_size == record["size_bytes"]:
-                self._insert(record)
+                with self._connection() as connection:
+                    connection.execute('BEGIN IMMEDIATE')
+                    job = connection.execute('SELECT status FROM podcast_imports WHERE id=?', (record['id'],)).fetchone()
+                    if job and job['status'] in ('cancelled', 'cancelling'):
+                        target.unlink(missing_ok=True)
+                    else:
+                        self._insert(record, connection)
             partial.unlink(missing_ok=True)
             marker.unlink()
         else:
@@ -96,14 +106,65 @@ class AudioLibrary:
 
     def list_files(self) -> list[dict]:
         with self._connection() as connection:
+            connection.execute('BEGIN')
             records = [dict(row) for row in connection.execute(
                 """SELECT a.*, t.status AS transcription_status, t.detail AS transcription_detail,
                     t.error AS transcription_error, t.model_id, t.device,
+                    p.platform, p.source_url, p.podcast_title, 0 AS is_podcast_import,
                     EXISTS(SELECT 1 FROM transcription_results r WHERE r.audio_id=a.id) AS has_result
                     FROM audio_files a LEFT JOIN transcription_tasks t ON t.audio_id=a.id
+                    LEFT JOIN podcast_imports p ON p.id=a.id
                     ORDER BY a.imported_at DESC, a.id DESC""",
             ).fetchall()]
-        return [{**record, "available": self._path(record).is_file()} for record in records]
+            pending = [dict(row) for row in connection.execute("""SELECT id,name,suffix,
+                total_bytes AS size_bytes,created_at AS imported_at,status AS transcription_status,
+                detail AS transcription_detail,'' AS transcription_error,0 AS has_result,
+                platform,source_url,podcast_title,1 AS is_podcast_import,stage,downloaded_bytes,total_bytes
+                FROM podcast_imports p WHERE NOT EXISTS(SELECT 1 FROM audio_files a WHERE a.id=p.id)""")]
+        records = [{**record, "available": self._path(record).is_file()} for record in records]
+        records.extend({**record, 'available': False} for record in pending)
+        return sorted(records, key=lambda record: (record['imported_at'], record['id']), reverse=True)
+
+    def adopt_download(self, job: dict, directory: Path) -> None:
+        """Commit a managed, verified download using the existing recovery journal.
+
+        Its UUID is the acquisition UUID. The file rename precedes the DB insert;
+        recovery can finish an interrupted insert exactly once via _insert.
+        """
+        with self._mutex:
+            if self._closed or self._session:
+                raise RuntimeError('请等待当前音频导入完成。')
+            with self._file_lock():
+                self._recover()
+                record = {'id': job['id'], 'name': job['name'], 'suffix': job['suffix'],
+                          'size_bytes': job['downloaded_bytes'], 'imported_at': job['created_at']}
+                target = self._path(record)
+                with self._connection() as connection:
+                    if connection.execute('SELECT 1 FROM audio_files WHERE id=?', (job['id'],)).fetchone():
+                        return  # _recover may just have committed the previous attempt.
+                source = directory / ('audio' + job['suffix'])
+                if not source.is_file() or source.stat().st_size != record['size_bytes'] or record['size_bytes'] <= 0:
+                    raise ValueError('下载文件不完整。')
+                try:
+                    with self._connection() as connection:
+                        connection.execute('BEGIN IMMEDIATE')
+                        current = connection.execute('SELECT status FROM podcast_imports WHERE id=?', (job['id'],)).fetchone()
+                        if not current or current['status'] != 'importing':
+                            return
+                        marker = self._directory / '.pending.json.tmp'
+                        marker.write_text(json.dumps(record), encoding='utf-8')
+                        os.replace(marker, self._directory / '.pending.json')
+                        os.replace(source, target)
+                        self._insert(record, connection)
+                except Exception:
+                    if target.is_file():
+                        os.replace(target, source)
+                    (self._directory / '.pending.json').unlink(missing_ok=True)
+                    raise
+                try:
+                    (self._directory / '.pending.json').unlink(missing_ok=True)
+                except OSError:
+                    pass  # Committed; recovery will clean the journal.
 
     def cleanup_completed(self) -> None:
         """Remove only managed copies whose completed transcripts are committed.
@@ -262,6 +323,7 @@ class AudioLibrary:
                             if path.exists():
                                 os.replace(path, tombstone)
                             connection.execute("DELETE FROM audio_files WHERE id=?", (identifier,))
+                            connection.execute("DELETE FROM podcast_imports WHERE id=?", (identifier,))
                     except Exception:
                         if tombstone.exists():
                             os.replace(tombstone, path)

@@ -259,16 +259,58 @@ class AIModelManagementTests(unittest.TestCase):
         self.assertEqual(self.record(identifier)["status"], "failed")
         self.assertIn("单次测试输出达到上限", self.record(identifier)["last_error"])
 
-    def test_failed_retest_does_not_silently_change_default(self):
+    def test_failed_retest_clears_default_and_allows_edit_and_delete(self):
         identifier = self.add_model()
         self.mark_ready(identifier)
         self.service.select_model(identifier)
         fake_litellm = ModuleType("litellm")
         fake_litellm.completion = Mock(return_value=self.response(None))
         with patch.dict("sys.modules", {"litellm": fake_litellm}):
-            self.service.test_model(identifier)
-        row = self.service.list_models()[0]
-        self.assertTrue(row["selected"])
+            rows = self.service.test_model(identifier)
+        row = rows[0]
+        self.assertFalse(row["selected"])
         self.assertEqual(row["status"], "failed")
-        with self.assertRaisesRegex(ValueError, "不能编辑"):
-            self.update_model(identifier)
+        self.assertTrue(row["last_error"])
+        with self.assertRaisesRegex(ValueError, "请先在设置中测试"):
+            self.service.default_generation_profile()
+        self.update_model(identifier, api_key="replacement-key")
+        self.assertEqual(self.record(identifier)["status"], "untested")
+        self.assertFalse(self.service.list_models()[0]["selected"])
+        self.service.delete_model(identifier)
+        self.assertEqual(self.service.list_models(), [])
+
+    def test_failed_non_default_does_not_clear_other_default(self):
+        default = self.add_model()
+        other = self.add_model()
+        self.mark_ready(default)
+        self.service.select_model(default)
+        self.service.repository.save_test_result(other, success=False, error="测试失败")
+        self.assertEqual(self.service.default_generation_profile()["id"], default)
+
+    def test_successful_retest_preserves_default_but_does_not_restore_failed_default(self):
+        identifier = self.add_model()
+        self.mark_ready(identifier)
+        self.service.select_model(identifier)
+        self.mark_ready(identifier)
+        self.assertTrue(self.service.list_models()[0]["selected"])
+        self.service.repository.save_test_result(identifier, success=False, error="测试失败")
+        self.mark_ready(identifier)
+        self.assertFalse(self.service.list_models()[0]["selected"])
+        self.assertTrue(self.service.select_model(identifier)[0]["selected"])
+
+    def test_startup_clears_legacy_failed_default(self):
+        identifier = self.add_model()
+        self.mark_ready(identifier)
+        self.service.select_model(identifier)
+        with self.service.repository.connection() as db:
+            db.execute(
+                "UPDATE ai_model_profiles SET status='failed', last_error='旧测试失败' WHERE id=?",
+                (identifier,),
+            )
+        restarted = AIModelService(self.database)
+        row = restarted.list_models()[0]
+        self.assertFalse(row["selected"])
+        self.assertEqual(row["status"], "failed")
+        self.assertEqual(row["last_error"], "旧测试失败")
+        self.update_model(identifier, api_key="replacement-key")
+        self.assertEqual(self.record(identifier)["status"], "untested")

@@ -12,7 +12,7 @@ datas = [(str(root / "src/sona/web"), "sona/web"),
 binaries = []
 hiddenimports = ["webview.platforms.winforms", "webview.platforms.edgechromium", "keyring.backends.Windows",
                  "clr", "pythonnet", "certifi", "cryptography"]
-for package in ("faster_whisper", "ctranslate2", "av", "litellm", "tiktoken", "tiktoken_ext", "clr_loader"):
+for package in ("faster_whisper", "ctranslate2", "av", "litellm", "tiktoken", "tiktoken_ext", "clr_loader", "yt_dlp"):
     package_data, package_bins, package_imports = collect_all(package)
     datas += package_data
     binaries += package_bins
@@ -20,7 +20,7 @@ for package in ("faster_whisper", "ctranslate2", "av", "litellm", "tiktoken", "t
 datas += collect_data_files("webview")
 datas += collect_data_files("pythonnet")
 hiddenimports += collect_submodules("sona")
-for distribution in ("sona", "pywebview", "keyring", "faster-whisper", "ctranslate2", "av", "litellm", "cryptography", "pythonnet"):
+for distribution in ("sona", "pywebview", "keyring", "faster-whisper", "ctranslate2", "av", "litellm", "cryptography", "pythonnet", "yt-dlp"):
     datas += copy_metadata(distribution)
 
 a = Analysis([str(root / "packaging/macos/entry.py")], pathex=[str(root / "src")],

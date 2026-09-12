@@ -24,6 +24,8 @@ const dateFormat = new Intl.DateTimeFormat("zh-CN", {
 const labels = {
   waiting_model: "等待模型", queued: "排队中", transcribing: "转录中",
   cancelling: "正在取消", completed: "已完成", failed: "转录失败", cancelled: "已取消",
+  waiting_fetch: "等待获取", resolving: "解析中", downloading: "下载中",
+  importing: "正在入库", interrupted: "获取中断",
 };
 const rows = new Map();
 let requestQueue = Promise.resolve();
@@ -35,6 +37,7 @@ let currentResult = null;
 let resultRequest = 0;
 let detailRecordId = null;
 let creatingManuscript = false;
+let locateId = null;
 let transcriptRenderTimer;
 const TRANSCRIPT_BATCH_SIZE = 200;
 
@@ -49,6 +52,17 @@ function taskPresentation(record) {
   let label = labels[record.transcription_status] ?? "等待转录";
   let explanation = detail;
   let progress = "";
+  if (record.is_podcast_import) {
+    if (record.transcription_status === "failed") {
+      label = { resolving: "解析失败", downloading: "下载失败", importing: "入库失败" }[record.stage] ?? "获取失败";
+    }
+    if (record.transcription_status === "downloading") {
+      progress = record.total_bytes > 0
+        ? `${Math.min(100, Math.floor(record.downloaded_bytes / record.total_bytes * 100))}% · ${formatBytes(record.downloaded_bytes)}`
+        : `已下载 ${formatBytes(record.downloaded_bytes)}`;
+    }
+    if (record.transcription_status === "importing") explanation = "下载完成，正在等待入库并加入转录队列。";
+  }
   if (record.transcription_status === "transcribing") {
     const stages = { "正在准备转录。": "准备中", "正在加载模型。": "加载中", "正在转录。": "转录中" };
     const stage = Object.keys(stages).find((text) => detail.endsWith(text));
@@ -139,12 +153,18 @@ function render(records) {
       const title = document.createElement("strong");
       title.textContent = record.name;
       name.append(title);
-      if (!record.available && !(record.transcription_status === "completed" && record.has_result)) {
+      if (record.platform) {
+        const source = document.createElement("small");
+        source.className = "audio-source";
+        source.textContent = [record.podcast_title, record.platform === "apple" ? "Apple Podcasts" : "小宇宙"].filter(Boolean).join(" · ");
+        name.append(source);
+      }
+      if (!record.is_podcast_import && !record.available && !(record.transcription_status === "completed" && record.has_result)) {
         const missing = document.createElement("small");
         missing.textContent = "文件已丢失";
         name.append(missing);
       }
-      row.insertCell().textContent = formatBytes(record.size_bytes);
+      row.insertCell().textContent = record.size_bytes > 0 ? formatBytes(record.size_bytes) : "—";
       const imported = new Date(record.imported_at);
       row.insertCell().textContent = Number.isNaN(imported.getTime()) ? "—" : dateFormat.format(imported);
       const state = row.insertCell();
@@ -181,14 +201,20 @@ function render(records) {
       actions.className = "audio-row-actions";
       const status = record.transcription_status;
       if (record.has_result) actions.append(makeButton("get_transcription", "查看结果", record));
-      if (["failed", "cancelled"].includes(status) && record.available) {
+      if (!record.is_podcast_import && ["failed", "cancelled"].includes(status) && record.available) {
         actions.append(makeButton("retry_transcription", "重试", record));
+      }
+      if (record.is_podcast_import && ["failed", "cancelled", "interrupted"].includes(status)) {
+        actions.append(makeButton("retry_podcast_import", "重新获取", record));
+      }
+      if (record.is_podcast_import && ["waiting_fetch", "resolving", "downloading", "importing"].includes(status)) {
+        actions.append(makeButton("cancel_podcast_import", "取消", record));
       }
       if (status === "waiting_model") actions.append(makeButton("settings", "前往设置", record));
       if (["waiting_model", "queued", "transcribing"].includes(status)) {
         actions.append(makeButton("cancel_transcription", "取消", record));
       }
-      if (!["transcribing", "cancelling"].includes(status)) {
+      if (!["transcribing", "cancelling", "resolving", "downloading", "importing"].includes(status)) {
         actions.append(makeButton("delete_audio", "删除", record));
       }
       operations.append(actions);
@@ -198,6 +224,15 @@ function render(records) {
     if (list.children[index] !== row) list.insertBefore(row, list.children[index] ?? null);
   }
   list.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
+  if (locateId && rows.has(locateId)) {
+    const row = rows.get(locateId).row;
+    row.scrollIntoView({ block: "center", behavior: "auto" });
+    row.tabIndex = -1;
+    row.focus({ preventScroll: true });
+    row.classList.add("is-located");
+    setTimeout(() => row.classList.remove("is-located"), 3000);
+    locateId = null;
+  }
 }
 
 function schedule() {
@@ -232,7 +267,8 @@ async function perform(method, record) {
     try {
       confirmed = await confirmAction({
         title: "删除记录？",
-        message: `将删除“${record.name}”及其转录结果。\n原文件不受影响。`,
+        message: record.platform ? `将删除“${record.name}”及其下载音频和转录结果。`
+          : `将删除“${record.name}”及其转录结果。\n原文件不受影响。`,
         confirmLabel: "删除记录",
         destructive: true,
         getReturnFocus: () => rows.get(record.id)?.row.querySelector('[data-method="delete_audio"]'),
@@ -241,8 +277,8 @@ async function perform(method, record) {
     if (!confirmed || busy) return;
     const current = rows.get(record.id)?.record;
     if (!current) { showToast("这条音频已不在列表中。"); return; }
-    if (["transcribing", "cancelling"].includes(current.transcription_status)) {
-      showToast("音频正在处理，请先取消转录，待取消完成后再删除。");
+    if (["transcribing", "cancelling", "resolving", "downloading", "importing"].includes(current.transcription_status)) {
+      showToast("音频正在处理，请先取消任务，待取消完成后再删除。");
       return;
     }
     record = current;
@@ -261,6 +297,8 @@ async function perform(method, record) {
           delete_audio: ["已删除记录及转录结果。", "success"],
           retry_transcription: ["已提交重新转录请求。", "info"],
           cancel_transcription: ["已提交取消转录请求。", "info"],
+          retry_podcast_import: ["已提交重新获取请求。", "info"],
+          cancel_podcast_import: ["已提交取消获取请求。", "info"],
         };
         if (notices[method]) showToast(...notices[method]);
         // A refresh failure must not misreport an already completed action.
@@ -320,6 +358,10 @@ function showResult(result) {
     appendBatch();
   }
   transcriptTitle.focus();
+}
+
+export function locateAudio(identifier) {
+  locateId = identifier;
 }
 
 export function openAudioLibrary() {
