@@ -12,11 +12,15 @@ from urllib.parse import urlsplit
 def fetch_episode(job, directory, send, parent_pid):
     from ..file_lock import exclusive_file_lock
 
+    download_allowed = threading.Event()
+
     def watch_parent():
-        # The parent never sends data. EOF means it exited, including on Windows.
+        # The parent may authorize a download. EOF means it exited, including on Windows.
         # Stop even if the main thread is stuck in DNS or a blocking network read.
         try:
-            send.recv()
+            while True:
+                if send.recv() == 'download':
+                    download_allowed.set()
         except (EOFError, OSError):
             os._exit(0)
 
@@ -25,14 +29,15 @@ def fetch_episode(job, directory, send, parent_pid):
         with (exclusive_file_lock(Path(directory).parent / f'{job["id"]}.lock'),
               open(os.devnull, 'w', encoding='utf-8') as output,
               redirect_stdout(output), redirect_stderr(output)):
-            _fetch_episode(job, directory, send, parent_pid)
+            _fetch_episode(job, directory, send, parent_pid, download_allowed)
     finally:
         send.close()
 
 
-def _fetch_episode(job, directory, send, parent_pid):
+def _fetch_episode(job, directory, send, parent_pid, download_allowed):
     # Heavy dependencies live in the spawned process, never the UI bridge thread.
     stage = 'resolving'
+    bilibili_error_detail = None
     try:
         import av
         from yt_dlp.globals import plugin_dirs
@@ -76,7 +81,48 @@ def _fetch_episode(job, directory, send, parent_pid):
             'geo_bypass': False,
             'http_headers': {'User-Agent': 'Mozilla/5.0', 'Accept-Encoding': 'identity'},
         }
+        if job['platform'] == 'bilibili':
+            from .bilibili import BILIBILI_FORMAT
+
+            options['format'] = BILIBILI_FORMAT
         with PodcastYoutubeDL(options, auto_init=False) as downloader:
+            if job['platform'] == 'bilibili':
+                from .bilibili import extract_video, download_media, prepare_audio, error_detail
+
+                bilibili_error_detail = error_detail
+                info, canonical = extract_video(downloader, job['source_url'])
+                title = str(info.get('title') or 'B站视频').strip()[:500]
+                duration = info.get('duration')
+                duration = float(duration) if isinstance(duration, (int, float)) else 0
+                if not math.isfinite(duration) or duration < 0:
+                    duration = 0
+                emit({'kind': 'metadata', 'name': title, 'source_url': canonical,
+                      'podcast_title': str(info.get('uploader') or '')[:500],
+                      'cover_url': str(info.get('thumbnail') or '')[:4096], 'duration': duration})
+                # The parent binds the canonical BV/part and checks aliases before
+                # allowing bytes to download. Duplicates are merged without fetching.
+                download_allowed.wait()
+                stage = 'downloading'
+                downloader.downloading_audio = True
+                source = Path(directory) / 'source.media'
+
+                def retry_node(error, attempt):
+                    from .errors import failure_metadata
+
+                    emit({'kind': 'retrying_download', 'attempt': attempt, 'diagnostic': failure_metadata(error)})
+
+                download_media(downloader, info, source, progress, retry_node)
+                stage = 'processing'
+                emit({'kind': 'processing'})
+                target = prepare_audio(source, directory, info['ext'])
+                if not target.is_file() or not 0 < target.stat().st_size <= MAX_AUDIO_BYTES:
+                    raise ValueError('音频转换后为空或超过 2 GB，暂不支持导入。')
+                with av.open(str(target)) as container:
+                    if not container.streams.audio or next(container.decode(audio=0), None) is None:
+                        raise ValueError('下载内容中没有可读取的音轨。')
+                source.unlink()
+                emit({'kind': 'complete', 'suffix': target.suffix, 'size_bytes': target.stat().st_size})
+                return
             extractor = XiaoyuzhouIE(downloader) if job['platform'] == 'xiaoyuzhou' else SonaApplePodcastsIE(downloader)
             info = extractor.extract(job['source_url'])
             if not isinstance(info, dict) or not info.get('url'):
@@ -108,8 +154,8 @@ def _fetch_episode(job, directory, send, parent_pid):
             target = Path(directory) / ('audio' + suffix)
             # A direct HTTP file only: no external downloader, playlist, executable,
             # conversion, thumbnail write, or filename derived from remote metadata.
-            from yt_dlp.downloader.http import HttpFD
-            transfer = HttpFD(downloader, downloader.params)
+            from .transfer import MediaHttpFD
+            transfer = MediaHttpFD(downloader, downloader.params)
             transfer.add_progress_hook(progress)
             success, _ = transfer.download(str(target), {
                 'id': job['episode_id'], 'title': title, 'url': media_url,
@@ -125,12 +171,16 @@ def _fetch_episode(job, directory, send, parent_pid):
     except (BrokenPipeError, EOFError, InterruptedError):
         pass
     except Exception as error:
+        from .errors import failure_metadata
+
         # Only our fixed messages / expected Xiaoyuzhou errors are user-facing.
         # Network/extractor tracebacks may include expiring URLs and credentials.
         detail = ('无法解析单集，请检查链接是否公开有效；也可能是平台页面发生变化。'
                   if stage == 'resolving' else '下载或读取音频失败，请检查网络和可用磁盘空间后重试。')
+        if bilibili_error_detail:
+            detail = bilibili_error_detail(error, stage)
         if isinstance(error, ModuleNotFoundError):
-            detail = '缺少播客导入组件，请同步项目依赖或重新安装完整版本的 Sona。'
+            detail = '缺少链接导入组件，请同步项目依赖或重新安装完整版本的 Sona。'
         if isinstance(error, ValueError) and str(error).startswith(('该单集', '音频', '下载内容')):
             detail = str(error)
         if type(error).__name__ == 'ExtractorError' and getattr(error, 'expected', False):
@@ -138,7 +188,8 @@ def _fetch_episode(job, directory, send, parent_pid):
             if original.startswith(('该单集需要访问权限', '公开页面没有可下载')):
                 detail = original
         try:
-            send.send({'kind': 'error', 'stage': stage, 'detail': detail})
+            send.send({'kind': 'error', 'stage': stage, 'detail': detail,
+                       'diagnostic': failure_metadata(error)})
         except (BrokenPipeError, EOFError, OSError):
             pass
     finally:

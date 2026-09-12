@@ -54,9 +54,11 @@ function taskPresentation(record) {
   let progress = "";
   if (record.is_podcast_import) {
     if (record.transcription_status === "failed") {
-      label = { resolving: "解析失败", downloading: "下载失败", importing: "入库失败" }[record.stage] ?? "获取失败";
+      label = { resolving: "解析失败", downloading: "下载失败", processing: "音频转换失败", importing: "入库失败" }[record.stage] ?? "获取失败";
     }
-    if (record.transcription_status === "downloading") {
+    if (record.transcription_status === "downloading" && record.stage === "processing") {
+      label = "正在转换为 MP3";
+    } else if (record.transcription_status === "downloading") {
       progress = record.total_bytes > 0
         ? `${Math.min(100, Math.floor(record.downloaded_bytes / record.total_bytes * 100))}% · ${formatBytes(record.downloaded_bytes)}`
         : `已下载 ${formatBytes(record.downloaded_bytes)}`;
@@ -157,7 +159,8 @@ function render(records) {
       if (record.platform) {
         const source = document.createElement("small");
         source.className = "audio-source";
-        source.textContent = [record.podcast_title, record.platform === "apple" ? "Apple Podcasts" : "小宇宙"].filter(Boolean).join(" · ");
+        const platform = { apple: "Apple Podcasts", xiaoyuzhou: "小宇宙", bilibili: "哔哩哔哩" }[record.platform] ?? record.platform;
+        source.textContent = [record.podcast_title, platform].filter(Boolean).join(" · ");
         source.title = source.textContent;
         name.append(source);
       }

@@ -188,14 +188,37 @@ class PodcastService:
                         break
                     kind = event.get('kind')
                     if kind == 'metadata':
+                        if job['platform'] == 'bilibili':
+                            target = self.repository.resolve_source(identifier, event['source_url'])
+                            if target != identifier:
+                                break  # Duplicate or cancelled; stop the waiting child.
                         stage = 'downloading'
                         deadline = time.monotonic() + 3600
                         self.repository.patch(identifier, status='downloading', stage=stage,
                             **{key: event[key] for key in ('name', 'podcast_title', 'cover_url', 'duration')})
+                        if job['platform'] == 'bilibili':
+                            receive.send('download')
+                    elif kind == 'processing':
+                        stage = 'processing'
+                        self.repository.patch(identifier, stage=stage, detail='正在转换为 MP3。')
+                    elif kind == 'retrying_download':
+                        diagnostic = event.get('diagnostic') or {}
+                        logger.warning('下载节点不可用，切换备用节点 attempt=%s type=%s code=%s http_status=%s',
+                            event.get('attempt'), diagnostic.get('error_type', '-'),
+                            diagnostic.get('code', 'media_unknown'), diagnostic.get('http_status'),
+                            extra={'task_id': identifier})
+                        self.repository.patch(identifier, detail='正在切换备用下载节点。', downloaded_bytes=0, total_bytes=0)
                     elif kind == 'progress':
                         self.repository.patch(identifier, downloaded_bytes=event['downloaded_bytes'],
-                                              total_bytes=event['total_bytes'])
+                                              total_bytes=event['total_bytes'], detail='')
                     elif kind in ('complete', 'error'):
+                        if kind == 'error':
+                            diagnostic = event.get('diagnostic') or {}
+                            logger.warning('链接获取失败 stage=%s type=%s code=%s http_status=%s at=%s:%s',
+                                event.get('stage', stage), diagnostic.get('error_type', '-'),
+                                diagnostic.get('code', 'media_unknown'), diagnostic.get('http_status'),
+                                diagnostic.get('function', '-'), diagnostic.get('line', 0),
+                                extra={'task_id': identifier})
                         outcome = event
                         break
                 elif not process.is_alive():

@@ -233,6 +233,49 @@ class ExtractorTests(unittest.TestCase):
         with patch('socket.getaddrinfo', return_value=answers), self.assertRaises(RequestError):
             public_media_url('https://cdn.example/audio.mp3', resolve=True)
 
+    def test_cdn_ports_keep_dns_and_redirect_guards(self):
+        import socket
+        from urllib.request import Request
+        from sona.podcasts.network import PublicRequestGuard, PublicRedirectHandler
+
+        for scheme, port in (('https', 4483), ('https', 8443), ('http', 8080), ('https', 65535)):
+            with self.subTest(scheme=scheme, port=port):
+                url = f'{scheme}://fixture.mcdn.bilivideo.cn:{port}/audio.m4s?token=fixture'
+                answers = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('1.1.1.1', port))]
+                with patch('socket.getaddrinfo', return_value=answers) as resolve:
+                    request = Request(url)
+                    self.assertIs(PublicRequestGuard().http_request(request), request)
+                self.assertEqual(resolve.call_args.args[:2], ('fixture.mcdn.bilivideo.cn', port))
+                redirected = PublicRedirectHandler().redirect_request(
+                    Request('https://cdn.example/audio', headers={'Authorization': 'Bearer fixture'}),
+                    None, 302, '', {}, url)
+                self.assertEqual(redirected.full_url, url)
+                self.assertIsNone(redirected.get_header('Authorization'))
+
+    def test_cdn_port_never_allows_private_addresses_or_invalid_ports(self):
+        import socket
+        from sona.podcasts.network import public_media_url, MediaRequestError
+
+        for url in ('https://127.0.0.1:4483/audio', 'https://[::1]:4483/audio',
+                    'https://localhost:4483/audio', 'https://cdn.example:0/audio',
+                    'https://cdn.example:65536/audio', 'https://cdn.example:invalid/audio',
+                    'ftp://cdn.example:21/audio', 'https://cdn.example:-1/audio'):
+            with self.subTest(url=url), self.assertRaises(MediaRequestError):
+                public_media_url(url)
+        answers = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('192.168.1.1', 4483))]
+        with patch('socket.getaddrinfo', return_value=answers), self.assertRaises(MediaRequestError) as raised:
+            public_media_url('https://cdn.example:4483/audio', resolve=True)
+        self.assertEqual(raised.exception.code, 'media_private_address')
+
+    def test_dns_failure_has_a_distinct_safe_reason(self):
+        import socket
+        from sona.podcasts.network import public_media_url, MediaRequestError
+
+        with patch('socket.getaddrinfo', side_effect=socket.gaierror('private details')), self.assertRaises(MediaRequestError) as raised:
+            public_media_url('https://cdn.example:4483/audio', resolve=True)
+        self.assertEqual(raised.exception.code, 'media_dns_failed')
+        self.assertNotIn('private details', str(raised.exception))
+
     def test_cross_origin_redirect_does_not_forward_authorization(self):
         from urllib.request import Request
         from sona.podcasts.network import PublicRedirectHandler

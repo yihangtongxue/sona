@@ -45,6 +45,8 @@ svg { display: block; }
   --source-podcast-soft: #fff2e6;
   --source-apple: #9850ca;
   --source-apple-soft: #f5edfc;
+  --source-bilibili: #bc3561;
+  --source-bilibili-soft: #fff0f5;
   --shadow-card: #17203308;
   --shadow-dialog: #17203326;
   --shadow-popup: #17203314;
@@ -88,6 +90,8 @@ svg { display: block; }
   --source-podcast-soft: #443225;
   --source-apple: #c8a0ee;
   --source-apple-soft: #392d4b;
+  --source-bilibili: #f59cbb;
+  --source-bilibili-soft: #452d38;
   --shadow-card: #00000026;
   --shadow-dialog: #00000066;
   --shadow-popup: #00000040;
@@ -122,6 +126,7 @@ h1 { margin-bottom: 12px; font-size: 2rem; font-weight: 720; line-height: 1.2; }
 .source-icon-local { color: var(--source-local); background: var(--accent-soft); }
 .source-icon-xiaoyuzhou { color: var(--source-podcast); background: var(--source-podcast-soft); }
 .source-icon-apple { color: var(--source-apple); background: var(--source-apple-soft); }
+.source-icon-bilibili { color: var(--source-bilibili); background: var(--source-bilibili-soft); }
 .source-name { margin-top: 20px; font-size: 1rem; font-weight: 650; line-height: 1.5; }
 .source-description { margin-top: 8px; margin-bottom: 24px; color: var(--ink-muted); font-size: .8125rem; line-height: 1.75; }
 .source-action { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); color: var(--accent); font-size: .8125rem; font-weight: 600; }

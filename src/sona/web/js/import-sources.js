@@ -21,6 +21,15 @@ const sources = [
     hosts: ["podcasts.apple.com"],
     icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="10" r="2" /><path d="M9.5 15a2.5 2.5 0 0 1 5 0l-.7 5h-3.6zM6 17a8 8 0 1 1 12 0M8 13a4.5 4.5 0 1 1 8 0" /></svg>',
   },
+  {
+    id: "bilibili",
+    name: "哔哩哔哩",
+    description: "把视频里的声音转成文字。",
+    help: "粘贴公开 BV/AV 视频链接、b23.tv 短链接或分享文案。默认获取第一P；链接带 p 参数时只获取对应分P。暂不支持登录、充电内容、番剧、合集或直播。",
+    placeholder: "粘贴 B站视频链接或分享文案",
+    hosts: ["www.bilibili.com", "bilibili.com", "m.bilibili.com", "b23.tv"],
+    icon: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="3" /><path d="m7 2 3 4m7-4-3 4M7 11v3m10-3v3m-7 2 2 1 2-1" /></svg>',
+  },
 ];
 
 export function initializeImportSources(onImported) {
@@ -67,6 +76,7 @@ export function initializeImportSources(onImported) {
       clearError();
       document.querySelector("#podcast-title").textContent = `从 ${source.name} 导入`;
       document.querySelector("#podcast-help").textContent = source.help;
+      document.querySelector('label[for="podcast-url"]').textContent = source.id === "bilibili" ? "视频链接或分享文案" : "播客链接";
       const dialogIcon = document.querySelector("#podcast-dialog-icon");
       dialogIcon.className = `source-icon source-icon-${source.id}`;
       dialogIcon.innerHTML = source.icon;
@@ -101,12 +111,18 @@ export function initializeImportSources(onImported) {
     if (submitting || !activeSource) return;
     clearError();
     try {
-      const url = new URL(input.value.trim());
+      let value = input.value.trim();
+      if (activeSource.id === "bilibili" && !/^https?:\/\//.test(value)) {
+        const links = value.match(/https?:\/\/[^\s<>"\u3000]+/g) ?? [];
+        if (links.length === 1) value = links[0].replace(/[。！？，；：、）】》」』)\]]+$/u, "");
+      }
+      const url = new URL(value);
+      if (!["https:", "http:"].includes(url.protocol)) throw new TypeError();
       if (!activeSource.hosts.includes(url.hostname.toLowerCase())) {
-        throw new Error(`请粘贴 ${activeSource.name} 的单集链接，或返回选择对应的音频来源。`);
+        throw new Error(`请粘贴 ${activeSource.name} 的链接，或返回选择对应的音频来源。`);
       }
     } catch (error) {
-      errorMessage.textContent = error instanceof TypeError ? "请粘贴完整的播客单集链接。" : error.message;
+      errorMessage.textContent = error instanceof TypeError ? "请粘贴完整链接，分享文案中请只保留一个链接。" : error.message;
       errorMessage.hidden = false;
       input.setAttribute("aria-invalid", "true");
       input.focus();
@@ -123,7 +139,7 @@ export function initializeImportSources(onImported) {
       drafts.delete(activeSource.id);
       dialog.close();
       onImported(result);
-      showToast(result.existing ? "该单集已有记录，已为你定位。" : "已添加播客，正在后台获取并转录。",
+      showToast(result.existing ? "该内容已有记录，已为你定位。" : "已添加任务，正在后台获取并转录。",
         result.existing ? "info" : "success");
     } catch (error) {
       errorMessage.textContent = String(error?.message ?? error);

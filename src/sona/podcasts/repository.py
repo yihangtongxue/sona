@@ -29,14 +29,38 @@ class ImportRepository:
         platform, episode, canonical = normalize_episode(url)
         with self.connection() as db:
             db.execute('BEGIN IMMEDIATE')
-            existing = db.execute('SELECT id FROM podcast_imports WHERE platform=? AND episode_id=?',
-                                  (platform, episode)).fetchone()
+            existing = db.execute('''SELECT id FROM podcast_imports WHERE platform=? AND episode_id=?
+                UNION SELECT import_id AS id FROM media_import_aliases WHERE platform=? AND source_id=?''',
+                                  (platform, episode, platform, episode)).fetchone()
             if existing:
                 return {'id': existing['id'], 'existing': True}
             identifier = str(uuid.uuid4())
             db.execute('INSERT INTO podcast_imports(id,platform,episode_id,source_url) VALUES (?,?,?,?)',
                        (identifier, platform, episode, canonical))
             return {'id': identifier, 'existing': False}
+
+    def resolve_source(self, identifier, source_url):
+        """Bind a resolved BV/part before downloading; merge aliases atomically."""
+        platform, episode, canonical = normalize_episode(source_url)
+        if platform != 'bilibili' or episode.startswith('short:'):
+            raise ValueError('无效的 B站解析结果。')
+        with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            job = db.execute('SELECT * FROM podcast_imports WHERE id=?', (identifier,)).fetchone()
+            if not job or job['platform'] != platform or job['status'] != 'resolving':
+                return None  # Cancellation wins over a late resolution event.
+            existing = db.execute('SELECT id FROM podcast_imports WHERE platform=? AND episode_id=? AND id<>?',
+                                  (platform, episode, identifier)).fetchone()
+            target = existing['id'] if existing else identifier
+            db.execute('INSERT OR REPLACE INTO media_import_aliases(platform,source_id,import_id) VALUES (?,?,?)',
+                       (platform, job['episode_id'], target))
+            if existing:
+                db.execute('UPDATE media_import_aliases SET import_id=? WHERE import_id=?', (target, identifier))
+                db.execute('DELETE FROM podcast_imports WHERE id=?', (identifier,))
+            else:
+                db.execute('UPDATE podcast_imports SET episode_id=?,source_url=? WHERE id=?',
+                           (episode, canonical, identifier))
+            return target
 
     def get(self, identifier):
         with self.connection() as db:

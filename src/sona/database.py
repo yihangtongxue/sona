@@ -10,8 +10,8 @@ from .models import ModelDefinition, ModelEvent
 
 # Legacy databases may retain user_version up to 5, even after version tracking
 # was removed. Version 6 adopted the current schema; version 7 adds the podcast
-# acquisition table without changing existing audio or transcription records.
-SCHEMA_VERSION = 7
+# acquisition table. Version 8 adds Bilibili and canonical link aliases.
+SCHEMA_VERSION = 8
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS models (
             id TEXT PRIMARY KEY,
@@ -47,10 +47,10 @@ SCHEMA = (
         )""",
     """CREATE TABLE IF NOT EXISTS podcast_imports (
             id TEXT PRIMARY KEY,
-            platform TEXT NOT NULL CHECK(platform IN ('xiaoyuzhou','apple')),
+            platform TEXT NOT NULL CHECK(platform IN ('xiaoyuzhou','apple','bilibili')),
             episode_id TEXT NOT NULL,
             source_url TEXT NOT NULL,
-            name TEXT NOT NULL DEFAULT '正在获取播客信息',
+            name TEXT NOT NULL DEFAULT '正在获取音频信息',
             podcast_title TEXT NOT NULL DEFAULT '',
             cover_url TEXT NOT NULL DEFAULT '',
             duration REAL NOT NULL DEFAULT 0,
@@ -139,7 +139,27 @@ SCHEMA = (
             updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         )""",
     """CREATE INDEX IF NOT EXISTS manuscript_queue ON manuscripts(status, created_at)""",
+    """CREATE TABLE IF NOT EXISTS media_import_aliases (
+            platform TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            import_id TEXT NOT NULL REFERENCES podcast_imports(id) ON DELETE CASCADE,
+            PRIMARY KEY(platform, source_id)
+        )""",
 )
+
+
+def migrate_media_imports(connection):
+    """Rebuild the v7 CHECK constraint inside the initialization transaction."""
+    if connection.execute('PRAGMA user_version').fetchone()[0] >= 8:
+        return
+    existing = connection.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='podcast_imports'").fetchone()
+    if not existing or "'bilibili'" in existing[0]:
+        return
+    statement = next(item for item in SCHEMA if item.startswith('CREATE TABLE IF NOT EXISTS podcast_imports ('))
+    connection.execute(statement.replace('podcast_imports (', 'podcast_imports_v8 (', 1))
+    connection.execute('INSERT INTO podcast_imports_v8 SELECT * FROM podcast_imports')
+    connection.execute('DROP TABLE podcast_imports')
+    connection.execute('ALTER TABLE podcast_imports_v8 RENAME TO podcast_imports')
 
 
 class ModelRepository:
@@ -152,6 +172,7 @@ class ModelRepository:
             connection.execute("BEGIN IMMEDIATE")
             if connection.execute("PRAGMA user_version").fetchone()[0] > SCHEMA_VERSION:
                 raise ValueError("数据库来自较新的 Sona 版本，请使用新版应用打开，不能直接降级。")
+            migrate_media_imports(connection)
             for statement in SCHEMA:
                 connection.execute(statement)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

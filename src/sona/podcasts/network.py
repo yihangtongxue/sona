@@ -21,35 +21,58 @@ MAX_PAGE_BYTES = 8 * 1024**2
 PROXY_DNS_RANGE = ipaddress.ip_network('198.18.0.0/15')
 
 
+class MediaRequestError(RequestError):
+    """Transport failures with fixed messages and diagnostic codes."""
+
+    MESSAGES = {
+        'media_invalid_url': '音频服务器地址格式无效，请重新获取。',
+        'media_unsupported_port': '音频服务器使用了暂不支持的端口，请反馈此问题。',
+        'media_private_address': '音频服务器地址指向本地或内网，已停止获取，请检查网络和代理设置。',
+        'media_dns_failed': '无法解析音频服务器地址，请检查网络和代理设置后重试。',
+        'media_response_too_large': '服务器响应超过大小限制（网页 8 MB，音频 2 GB）。',
+    }
+
+    def __init__(self, code):
+        self.code = code
+        super().__init__(self.MESSAGES[code])
+
+
 def public_media_url(url, *, resolve=False):
     try:
         parsed = urlsplit(url)
         if (len(url) > 16384 or parsed.scheme not in ('http', 'https') or not parsed.hostname
-                or parsed.username or parsed.password or re.search(r'[\x00-\x20\\]', url)
-                or parsed.port not in (None, 80 if parsed.scheme == 'http' else 443)):
+                or parsed.username or parsed.password or re.search(r'[\x00-\x20\\]', url)):
             raise ValueError()
+        # CDN media endpoints can use any valid TCP port. A fixed port list
+        # rejects working signed URLs. Input-page URLs remain tightly scoped;
+        # media requests and redirects still require HTTP(S) and public DNS/IPs.
+        port = parsed.port  # urlsplit validates the numeric range on access.
+        if port is not None and port < 1:
+            raise MediaRequestError('media_invalid_url')
         host = parsed.hostname.lower()
         if host == 'localhost' or host.endswith(('.localhost', '.local', '.internal')):
-            raise ValueError()
+            raise MediaRequestError('media_private_address')
         try:
             literal = ipaddress.ip_address(host)
         except ValueError:
             literal = None
         if literal is not None and not literal.is_global:
-            raise ValueError()
+            raise MediaRequestError('media_private_address')
         if resolve:
-            addresses = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == 'https' else 80),
+            addresses = socket.getaddrinfo(host, port or (443 if parsed.scheme == 'https' else 80),
                                            type=socket.SOCK_STREAM)
             if not addresses:
-                raise ValueError()
+                raise MediaRequestError('media_dns_failed')
             for address in addresses:
                 ip = ipaddress.ip_address(address[4][0])
                 # Match Sona's update transport: allow fake DNS returned by a TUN
                 # proxy, but never allow that range as a literal input address.
                 if not ip.is_global and not (literal is None and ip in PROXY_DNS_RANGE):
-                    raise ValueError()
-    except (ValueError, TypeError, OSError):
-        raise RequestError('音频地址无效或无法解析到公开服务器，请检查网络或代理设置。') from None
+                    raise MediaRequestError('media_private_address')
+    except (ValueError, TypeError):
+        raise MediaRequestError('media_invalid_url') from None
+    except OSError:
+        raise MediaRequestError('media_dns_failed') from None
     return url
 
 
@@ -104,7 +127,7 @@ class PodcastYoutubeDL(YoutubeDL):
         limit = MAX_AUDIO_BYTES if self.downloading_audio else MAX_PAGE_BYTES
         try:
             if int(response.headers.get('Content-Length', '0')) > limit:
-                raise RequestError('响应超过大小限制（网页 8 MB，音频 2 GB）。')
+                raise MediaRequestError('media_response_too_large')
         except ValueError:
             pass
         except Exception:
@@ -123,7 +146,7 @@ class PodcastYoutubeDL(YoutubeDL):
             consumed += len(data)
             if consumed > limit:
                 response.close()
-                raise RequestError('响应超过大小限制（网页 8 MB，音频 2 GB）。')
+                raise MediaRequestError('media_response_too_large')
             return data
 
         response.read = read
