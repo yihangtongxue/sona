@@ -1,6 +1,7 @@
 """Durable acquisition state; audio_files are created only after downloading."""
 
 import sqlite3
+import json
 import uuid
 from contextlib import contextmanager
 
@@ -25,8 +26,12 @@ class ImportRepository:
         finally:
             db.close()
 
-    def create(self, url):
+    def create(self, url, strategy='subtitle_first', subtitle_language='original'):
         platform, episode, canonical = normalize_episode(url)
+        if strategy not in ('subtitle_first', 'transcribe') or subtitle_language not in ('original', 'zh', 'en', 'ja', 'ko'):
+            raise ValueError('无效的字幕获取选项。')
+        if platform != 'youtube':
+            strategy, subtitle_language = 'subtitle_first', 'original'
         with self.connection() as db:
             db.execute('BEGIN IMMEDIATE')
             existing = db.execute('''SELECT id FROM podcast_imports WHERE platform=? AND episode_id=?
@@ -35,8 +40,8 @@ class ImportRepository:
             if existing:
                 return {'id': existing['id'], 'existing': True}
             identifier = str(uuid.uuid4())
-            db.execute('INSERT INTO podcast_imports(id,platform,episode_id,source_url) VALUES (?,?,?,?)',
-                       (identifier, platform, episode, canonical))
+            db.execute('INSERT INTO podcast_imports(id,platform,episode_id,source_url,strategy,subtitle_language) VALUES (?,?,?,?,?,?)',
+                       (identifier, platform, episode, canonical, strategy, subtitle_language))
             return {'id': identifier, 'existing': False}
 
     def resolve_source(self, identifier, source_url):
@@ -66,6 +71,30 @@ class ImportRepository:
         with self.connection() as db:
             row = db.execute('SELECT * FROM podcast_imports WHERE id=?', (identifier,)).fetchone()
         return dict(row) if row else None
+
+    def save_subtitles(self, identifier, result):
+        """A text-only import never creates audio_files or enqueues a model."""
+        from .captions import validate_result
+
+        validate_result(result)
+        with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            job = db.execute('SELECT status,platform FROM podcast_imports WHERE id=?', (identifier,)).fetchone()
+            if not job or job['status'] != 'importing' or job['platform'] != 'youtube':
+                return False
+            db.execute('''INSERT INTO subtitle_results
+                (import_id,text,segments_json,language,duration,source_kind,size_bytes)
+                VALUES (?,?,?,?,?,?,?)''', (identifier, result['text'],
+                json.dumps(result['segments'], ensure_ascii=False), result['language'], result['duration'],
+                result['source_kind'], len(result['text'].encode('utf-8'))))
+            db.execute("UPDATE podcast_imports SET status='imported',detail='' WHERE id=?", (identifier,))
+            return True
+
+    def delete_subtitles(self, identifier):
+        with self.connection() as db:
+            return bool(db.execute('''DELETE FROM podcast_imports WHERE id=? AND status='imported'
+                AND EXISTS(SELECT 1 FROM subtitle_results WHERE import_id=podcast_imports.id)''',
+                (identifier,)).rowcount)
 
     def recover(self):
         # The scheduler file lock proves that no other parent owns these jobs.

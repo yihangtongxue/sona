@@ -1,8 +1,18 @@
 import { showToast } from "./toast.js";
+import { createDropdown } from "./dropdown.js";
 
 // Add a source here to reuse the card, input dialog, and submission flow.
 // The Python importer remains responsible for validating and resolving links.
 const sources = [
+  {
+    id: "youtube",
+    name: "YouTube",
+    description: "优先获取字幕，没有字幕时本地转录。",
+    help: "粘贴公开视频或 Shorts 链接。有可用字幕时无需安装语音模型；没有可用字幕时下载音轨并转录。暂不支持频道、播放列表、直播或需要登录的内容。",
+    placeholder: "粘贴 YouTube 视频链接",
+    hosts: ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"],
+    icon: '<svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4" /><path d="m10 9 5 3-5 3z" /></svg>',
+  },
   {
     id: "xiaoyuzhou",
     name: "小宇宙",
@@ -42,6 +52,14 @@ export function initializeImportSources(onImported) {
   const errorMessage = document.querySelector("#podcast-error");
   const close = document.querySelector("#podcast-close");
   const cancel = document.querySelector("#podcast-cancel");
+  const youtubeOptions = document.querySelector("#youtube-options");
+  const strategy = document.querySelector("#youtube-strategy");
+  const language = document.querySelector("#youtube-language");
+  createDropdown(document.querySelector("#youtube-strategy-select"), {
+    value: "subtitle_first",
+    onChange: (value) => { document.querySelector("#youtube-language-field").hidden = value === "transcribe"; },
+  });
+  createDropdown(document.querySelector("#youtube-language-select"), { value: "original", onChange: () => {} });
   const drafts = new Map();
   let activeSource = null;
   let opener = null;
@@ -76,7 +94,9 @@ export function initializeImportSources(onImported) {
       clearError();
       document.querySelector("#podcast-title").textContent = `从 ${source.name} 导入`;
       document.querySelector("#podcast-help").textContent = source.help;
-      document.querySelector('label[for="podcast-url"]').textContent = source.id === "bilibili" ? "视频链接或分享文案" : "播客链接";
+      document.querySelector('label[for="podcast-url"]').textContent = ["bilibili", "youtube"].includes(source.id) ? "视频链接或分享文案" : "播客链接";
+      youtubeOptions.hidden = source.id !== "youtube";
+      submit.textContent = source.id === "youtube" ? "获取文字" : "获取并转录";
       const dialogIcon = document.querySelector("#podcast-dialog-icon");
       dialogIcon.className = `source-icon source-icon-${source.id}`;
       dialogIcon.innerHTML = source.icon;
@@ -112,7 +132,7 @@ export function initializeImportSources(onImported) {
     clearError();
     try {
       let value = input.value.trim();
-      if (activeSource.id === "bilibili" && !/^https?:\/\//.test(value)) {
+      if (["bilibili", "youtube"].includes(activeSource.id) && !/^https?:\/\//.test(value)) {
         const links = value.match(/https?:\/\/[^\s<>"\u3000]+/g) ?? [];
         if (links.length === 1) value = links[0].replace(/[。！？，；：、）】》」』)\]]+$/u, "");
       }
@@ -130,16 +150,18 @@ export function initializeImportSources(onImported) {
     }
     submitting = true;
     submit.disabled = input.disabled = close.disabled = cancel.disabled = true;
+    strategy.disabled = language.disabled = true;
     submit.textContent = "正在提交…";
     form.setAttribute("aria-busy", "true");
     try {
       if (!window.pywebview?.api) throw new Error("桌面连接尚未就绪，请稍后重试。");
-      const result = await window.pywebview.api.import_podcast(input.value.trim());
+      const result = await window.pywebview.api.import_podcast(input.value.trim(),
+        activeSource.id === "youtube" ? strategy.value : "subtitle_first", language.value);
       input.value = "";
       drafts.delete(activeSource.id);
       dialog.close();
       onImported(result);
-      showToast(result.existing ? "该内容已有记录，已为你定位。" : "已添加任务，正在后台获取并转录。",
+      showToast(result.existing ? "该内容已有记录，已为你定位。" : "已添加任务，正在后台获取文字。",
         result.existing ? "info" : "success");
     } catch (error) {
       errorMessage.textContent = String(error?.message ?? error);
@@ -149,7 +171,8 @@ export function initializeImportSources(onImported) {
     } finally {
       submitting = false;
       submit.disabled = input.disabled = close.disabled = cancel.disabled = false;
-      submit.textContent = "获取并转录";
+      strategy.disabled = language.disabled = false;
+      submit.textContent = activeSource.id === "youtube" ? "获取文字" : "获取并转录";
       form.removeAttribute("aria-busy");
       if (!errorMessage.hidden && dialog.open) input.focus();
     }

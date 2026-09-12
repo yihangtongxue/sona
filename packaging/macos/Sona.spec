@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+from deno import find_deno_bin
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata
 
@@ -16,17 +17,18 @@ datas = [(str(root / "src/sona/web"), "sona/web"),
          (str(root / "assets/Sona.icns"), "sona/assets"),
          (str(stage / "update-public-key.json"), "sona/updates")]
 binaries = [(str(stage / "speech_asset_manager"), "sona/native")]
+binaries += [(find_deno_bin(), "sona/native")]
 hiddenimports = ["webview.platforms.cocoa", "keyring.backends.macOS", "certifi", "cryptography"]
 # Dynamic imports and model/tokenizer resources cannot all be inferred from the
 # GUI entry point. Collect installed packages only; never collect the workspace.
-for package in ("mlx", "mlx_whisper", "litellm", "tiktoken", "tiktoken_ext", "yt_dlp"):
+for package in ("mlx", "mlx_whisper", "litellm", "tiktoken", "tiktoken_ext", "yt_dlp", "yt_dlp_ejs", "curl_cffi"):
     package_data, package_bins, package_imports = collect_all(package)
     datas += package_data
     binaries += package_bins
     hiddenimports += package_imports
 datas += collect_data_files("webview")
 hiddenimports += collect_submodules("sona")
-for distribution in ("sona", "pywebview", "keyring", "mlx", "mlx-metal", "mlx-whisper", "litellm", "cryptography", "yt-dlp"):
+for distribution in ("sona", "pywebview", "keyring", "mlx", "mlx-metal", "mlx-whisper", "litellm", "cryptography", "yt-dlp", "yt-dlp-ejs"):
     datas += copy_metadata(distribution)
 
 a = Analysis([str(root / "packaging/macos/entry.py")], pathex=[str(root / "src")],

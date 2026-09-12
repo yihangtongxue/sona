@@ -28,7 +28,7 @@ SAFE_VALUES = frozenset({
     "sensitive", "network_error", "model_context_window_exceeded", "tool_calls",
     "update_tls_certificate", "update_tls_connection", "update_timeout", "update_dns",
     "update_manifest_json", "update_connection", "update_unknown",
-    "resolving", "processing", "importing",
+    "resolving", "processing", "importing", "subtitles", "SubtitleError",
     "media_unknown", "media_invalid_url", "media_unsupported_port", "media_private_address",
     "media_dns_failed", "media_response_too_large",
     "media_empty_response", "EmptyMediaResponseError", "ContentTooShortError",

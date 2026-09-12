@@ -4,6 +4,9 @@ import re
 from urllib.parse import parse_qs, urlsplit
 
 
+YOUTUBE_HOSTS = ('youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be')
+
+
 def source_link(value):
     if not isinstance(value, str) or len(value) > 4096:
         raise ValueError('请粘贴支持的平台链接，长度不能超过 4096 字符。')
@@ -12,7 +15,7 @@ def source_link(value):
         links = re.findall(r'https?://[^\s<>"\u3000]+', value)
         if len(links) == 1:
             link = links[0].rstrip('。！？，；：、）】》」』)]')
-            if urlsplit(link).hostname in ('bilibili.com', 'www.bilibili.com', 'm.bilibili.com', 'b23.tv'):
+            if urlsplit(link).hostname in (*YOUTUBE_HOSTS, 'bilibili.com', 'www.bilibili.com', 'm.bilibili.com', 'b23.tv'):
                 return link
     return value
 
@@ -26,6 +29,18 @@ def normalize_episode(value):
                 or re.search(r'[\s\x00-\x1f\\]', value)):
             raise ValueError()
         host = (parsed.hostname or '').lower()
+        if host in YOUTUBE_HOSTS:
+            if host == 'youtu.be':
+                video = parsed.path.strip('/') if parsed.path.count('/') <= 2 else ''
+            elif parsed.path.rstrip('/') == '/watch':
+                values = parse_qs(parsed.query, keep_blank_values=True).get('v', [])
+                video = values[0] if len(values) == 1 else ''
+            else:
+                match = re.fullmatch(r'/(?:shorts|embed)/([A-Za-z0-9_-]{11})/?', parsed.path)
+                video = match[1] if match else ''
+            if not re.fullmatch(r'[A-Za-z0-9_-]{11}', video):
+                raise ValueError('请复制 YouTube 单视频或 Shorts 链接，暂不支持频道、播放列表或直播链接。')
+            return 'youtube', video, f'https://www.youtube.com/watch?v={video}'
         if host in ('bilibili.com', 'www.bilibili.com', 'm.bilibili.com', 'b23.tv'):
             parts = parse_qs(parsed.query, keep_blank_values=True).get('p', [])
             if parts and (len(parts) != 1 or not re.fullmatch(r'[0-9]{1,5}', parts[0]) or int(parts[0]) < 1):
@@ -60,4 +75,4 @@ def normalize_episode(value):
         if str(error).startswith('请复制'):
             raise
         raise ValueError('链接格式无效，请粘贴完整的单集或视频链接。') from None
-    raise ValueError('暂支持小宇宙、Apple Podcasts 的公开单集和 B站公开视频链接。')
+    raise ValueError('暂支持小宇宙、Apple Podcasts 的公开单集及 B站、YouTube 公开视频链接。')

@@ -127,6 +127,8 @@ h1 { margin-bottom: 12px; font-size: 2rem; font-weight: 720; line-height: 1.2; }
 .source-icon-xiaoyuzhou { color: var(--source-podcast); background: var(--source-podcast-soft); }
 .source-icon-apple { color: var(--source-apple); background: var(--source-apple-soft); }
 .source-icon-bilibili { color: var(--source-bilibili); background: var(--source-bilibili-soft); }
+.source-icon-youtube { color: var(--danger); background: var(--surface-muted); }
+#youtube-options > label, #youtube-language-field > label { margin-top: 16px; }
 .source-name { margin-top: 20px; font-size: 1rem; font-weight: 650; line-height: 1.5; }
 .source-description { margin-top: 8px; margin-bottom: 24px; color: var(--ink-muted); font-size: .8125rem; line-height: 1.75; }
 .source-action { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); color: var(--accent); font-size: .8125rem; font-weight: 600; }

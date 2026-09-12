@@ -45,11 +45,11 @@ class PodcastService:
         except (FileLocked, OSError):
             return False
 
-    def create(self, url):
+    def create(self, url, strategy='subtitle_first', subtitle_language='original'):
         with self._mutation:
             if self._stop.is_set():
                 raise ValueError('应用正在关闭。')
-            result = self.repository.create(url)
+            result = self.repository.create(url, strategy, subtitle_language)
             self._wake.set()
             return result
 
@@ -77,7 +77,8 @@ class PodcastService:
             if job['status'] in ACTIVE:
                 raise ValueError('请先取消获取，等待结束后再删除。')
             if job['status'] == 'imported':
-                self.library.delete_file(identifier)
+                if not self.repository.delete_subtitles(identifier):
+                    self.library.delete_file(identifier)
             else:
                 self.repository.delete_pending(identifier)
             self._cleanup(identifier)
@@ -132,6 +133,19 @@ class PodcastService:
         with self._mutation:
             current = self.repository.get(job['id'])
             if not current or current['status'] != 'importing' or self._stop.is_set():
+                return
+            if current['stage'] == 'subtitles':
+                from .captions import load_payload
+
+                try:
+                    if not self.repository.save_subtitles(job['id'], load_payload(self._directory(job['id']))):
+                        return  # Another window may have cancelled before the transaction.
+                except Exception:
+                    self.repository.patch(job['id'], status='failed', detail='字幕入库失败，请重新获取。')
+                    logger.warning('字幕入库失败', extra={'task_id': job['id']})
+                    return
+                self._cleanup(job['id'])
+                logger.info('字幕已入库，跳过本地转录', extra={'task_id': job['id']})
                 return
             if self.library.is_importing():
                 return  # A local file copy holds the library lock; retry later.
@@ -196,8 +210,19 @@ class PodcastService:
                         deadline = time.monotonic() + 3600
                         self.repository.patch(identifier, status='downloading', stage=stage,
                             **{key: event[key] for key in ('name', 'podcast_title', 'cover_url', 'duration')})
-                        if job['platform'] == 'bilibili':
+                        if job['platform'] in ('bilibili', 'youtube'):
                             receive.send('download')
+                    elif kind == 'subtitles':
+                        stage = 'subtitles'
+                        self.repository.patch(identifier, stage=stage, detail='正在获取字幕。')
+                    elif kind == 'subtitle_retry':
+                        diagnostic = event.get('diagnostic') or {}
+                        logger.warning('字幕获取失败，将尝试其他字幕或原音轨 type=%s code=%s http_status=%s',
+                            diagnostic.get('error_type', '-'), diagnostic.get('code', 'media_unknown'),
+                            diagnostic.get('http_status'), extra={'task_id': identifier})
+                    elif kind == 'audio_fallback':
+                        stage = 'downloading'
+                        self.repository.patch(identifier, stage=stage, detail=event['detail'], downloaded_bytes=0, total_bytes=0)
                     elif kind == 'processing':
                         stage = 'processing'
                         self.repository.patch(identifier, stage=stage, detail='正在转换为 MP3。')
@@ -210,7 +235,8 @@ class PodcastService:
                         self.repository.patch(identifier, detail='正在切换备用下载节点。', downloaded_bytes=0, total_bytes=0)
                     elif kind == 'progress':
                         self.repository.patch(identifier, downloaded_bytes=event['downloaded_bytes'],
-                                              total_bytes=event['total_bytes'], detail='')
+                                              total_bytes=event['total_bytes'],
+                                              **({} if job['platform'] == 'youtube' else {'detail': ''}))
                     elif kind in ('complete', 'error'):
                         if kind == 'error':
                             diagnostic = event.get('diagnostic') or {}
@@ -229,11 +255,19 @@ class PodcastService:
             if started:
                 process.join(timeout=0.5)
                 if process.is_alive():
+                    if job['platform'] == 'youtube':
+                        from .process_scope import kill_download_group
+
+                        kill_download_group(process.pid)
                     process.terminate()
                     process.join(timeout=2)
                 if process.is_alive():
                     process.kill()
                     process.join()
+                if job['platform'] == 'youtube':
+                    from .process_scope import kill_download_group
+
+                    kill_download_group(process.pid)
                 process.close()
             receive.close()
             send.close()
@@ -249,7 +283,8 @@ class PodcastService:
             if self._stop.is_set():
                 self.repository.patch(identifier, status='interrupted', detail='应用已关闭，获取中断，请重试。')
             elif outcome and outcome['kind'] == 'complete':
-                self.repository.patch(identifier, status='importing', stage='importing', suffix=outcome['suffix'],
+                result_stage = 'subtitles' if outcome.get('result_kind') == 'subtitles' else 'importing'
+                self.repository.patch(identifier, status='importing', stage=result_stage, suffix=outcome['suffix'],
                                       downloaded_bytes=outcome['size_bytes'], total_bytes=outcome['size_bytes'])
                 self._commit(self.repository.get(identifier))
                 return

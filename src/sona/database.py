@@ -11,7 +11,8 @@ from .models import ModelDefinition, ModelEvent
 # Legacy databases may retain user_version up to 5, even after version tracking
 # was removed. Version 6 adopted the current schema; version 7 adds the podcast
 # acquisition table. Version 8 adds Bilibili and canonical link aliases.
-SCHEMA_VERSION = 8
+# Version 9 adds YouTube options and text-only subtitle results.
+SCHEMA_VERSION = 9
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS models (
             id TEXT PRIMARY KEY,
@@ -47,7 +48,7 @@ SCHEMA = (
         )""",
     """CREATE TABLE IF NOT EXISTS podcast_imports (
             id TEXT PRIMARY KEY,
-            platform TEXT NOT NULL CHECK(platform IN ('xiaoyuzhou','apple','bilibili')),
+            platform TEXT NOT NULL CHECK(platform IN ('xiaoyuzhou','apple','bilibili','youtube')),
             episode_id TEXT NOT NULL,
             source_url TEXT NOT NULL,
             name TEXT NOT NULL DEFAULT '正在获取音频信息',
@@ -62,6 +63,8 @@ SCHEMA = (
             downloaded_bytes INTEGER NOT NULL DEFAULT 0,
             total_bytes INTEGER NOT NULL DEFAULT 0,
             suffix TEXT NOT NULL DEFAULT '',
+            strategy TEXT NOT NULL DEFAULT 'subtitle_first' CHECK(strategy IN ('subtitle_first','transcribe')),
+            subtitle_language TEXT NOT NULL DEFAULT 'original',
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
             UNIQUE(platform, episode_id)
         )""",
@@ -145,21 +148,38 @@ SCHEMA = (
             import_id TEXT NOT NULL REFERENCES podcast_imports(id) ON DELETE CASCADE,
             PRIMARY KEY(platform, source_id)
         )""",
+    """CREATE TABLE IF NOT EXISTS subtitle_results (
+            import_id TEXT PRIMARY KEY REFERENCES podcast_imports(id) ON DELETE CASCADE,
+            text TEXT NOT NULL,
+            segments_json TEXT NOT NULL,
+            language TEXT NOT NULL,
+            duration REAL NOT NULL,
+            source_kind TEXT NOT NULL CHECK(source_kind IN ('manual_subtitles','automatic_subtitles')),
+            size_bytes INTEGER NOT NULL CHECK(size_bytes > 0),
+            completed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )""",
 )
 
 
 def migrate_media_imports(connection):
-    """Rebuild the v7 CHECK constraint inside the initialization transaction."""
-    if connection.execute('PRAGMA user_version').fetchone()[0] >= 8:
-        return
+    """Upgrade the platform constraint while preserving v8 alias foreign keys."""
     existing = connection.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='podcast_imports'").fetchone()
-    if not existing or "'bilibili'" in existing[0]:
+    if not existing or "'youtube'" in existing[0]:
         return
+    aliases = connection.execute("SELECT 1 FROM sqlite_master WHERE name='media_import_aliases'").fetchone()
+    if aliases:
+        connection.execute('CREATE TEMP TABLE saved_media_aliases AS SELECT * FROM media_import_aliases')
+        connection.execute('DROP TABLE media_import_aliases')
+    columns = ','.join(row[1] for row in connection.execute('PRAGMA table_info(podcast_imports)'))
     statement = next(item for item in SCHEMA if item.startswith('CREATE TABLE IF NOT EXISTS podcast_imports ('))
-    connection.execute(statement.replace('podcast_imports (', 'podcast_imports_v8 (', 1))
-    connection.execute('INSERT INTO podcast_imports_v8 SELECT * FROM podcast_imports')
+    connection.execute(statement.replace('podcast_imports (', 'podcast_imports_v9 (', 1))
+    connection.execute(f'INSERT INTO podcast_imports_v9 ({columns}) SELECT {columns} FROM podcast_imports')
     connection.execute('DROP TABLE podcast_imports')
-    connection.execute('ALTER TABLE podcast_imports_v8 RENAME TO podcast_imports')
+    connection.execute('ALTER TABLE podcast_imports_v9 RENAME TO podcast_imports')
+    if aliases:
+        connection.execute(next(item for item in SCHEMA if item.startswith('CREATE TABLE IF NOT EXISTS media_import_aliases (')))
+        connection.execute('INSERT INTO media_import_aliases SELECT * FROM saved_media_aliases')
+        connection.execute('DROP TABLE saved_media_aliases')
 
 
 class ModelRepository:

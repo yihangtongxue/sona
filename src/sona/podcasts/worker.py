@@ -11,6 +11,15 @@ from urllib.parse import urlsplit
 
 def fetch_episode(job, directory, send, parent_pid):
     from ..file_lock import exclusive_file_lock
+    from .process_scope import isolate_download, kill_download_group
+
+    if job['platform'] == 'youtube':
+        try:
+            isolate_download()
+        except OSError:
+            send.send({'kind': 'error', 'stage': 'resolving', 'detail': '无法启动受管理的 YouTube 下载进程，请重试。'})
+            send.close()
+            return
 
     download_allowed = threading.Event()
 
@@ -22,6 +31,8 @@ def fetch_episode(job, directory, send, parent_pid):
                 if send.recv() == 'download':
                     download_allowed.set()
         except (EOFError, OSError):
+            if job['platform'] == 'youtube':
+                kill_download_group(os.getpid())
             os._exit(0)
 
     threading.Thread(target=watch_parent, daemon=True).start()
@@ -37,7 +48,7 @@ def fetch_episode(job, directory, send, parent_pid):
 def _fetch_episode(job, directory, send, parent_pid, download_allowed):
     # Heavy dependencies live in the spawned process, never the UI bridge thread.
     stage = 'resolving'
-    bilibili_error_detail = None
+    media_error_detail = None
     try:
         import av
         from yt_dlp.globals import plugin_dirs
@@ -85,11 +96,38 @@ def _fetch_episode(job, directory, send, parent_pid, download_allowed):
             from .bilibili import BILIBILI_FORMAT
 
             options['format'] = BILIBILI_FORMAT
-        with PodcastYoutubeDL(options, auto_init=False) as downloader:
+        downloader_type = PodcastYoutubeDL
+        if job['platform'] == 'youtube':
+            from .youtube import runtime_options, error_detail
+            from .youtube_network import YoutubeYoutubeDL
+
+            downloader_type = YoutubeYoutubeDL
+            media_error_detail = error_detail
+            options.update(runtime_options())
+        with downloader_type(options, auto_init=False) as downloader:
+            if job['platform'] == 'youtube':
+                from .youtube import acquire, extract_video
+
+                info = extract_video(downloader, job['source_url'])
+                emit({'kind': 'metadata', 'name': str(info.get('title') or 'YouTube 视频')[:500],
+                      'source_url': info['webpage_url'], 'podcast_title': str(info.get('uploader') or '')[:500],
+                      'cover_url': str(info.get('thumbnail') or '')[:4096], 'duration': info['duration']})
+                download_allowed.wait()
+
+                def youtube_event(event):
+                    nonlocal stage
+                    if event['kind'] in ('subtitles', 'processing'):
+                        stage = event['kind']
+                    elif event['kind'] == 'audio_fallback':
+                        stage = 'downloading'
+                    emit(event)
+
+                acquire(downloader, info, job, directory, youtube_event, progress)
+                return
             if job['platform'] == 'bilibili':
                 from .bilibili import extract_video, download_media, prepare_audio, error_detail
 
-                bilibili_error_detail = error_detail
+                media_error_detail = error_detail
                 info, canonical = extract_video(downloader, job['source_url'])
                 title = str(info.get('title') or 'B站视频').strip()[:500]
                 duration = info.get('duration')
@@ -177,8 +215,8 @@ def _fetch_episode(job, directory, send, parent_pid, download_allowed):
         # Network/extractor tracebacks may include expiring URLs and credentials.
         detail = ('无法解析单集，请检查链接是否公开有效；也可能是平台页面发生变化。'
                   if stage == 'resolving' else '下载或读取音频失败，请检查网络和可用磁盘空间后重试。')
-        if bilibili_error_detail:
-            detail = bilibili_error_detail(error, stage)
+        if media_error_detail:
+            detail = media_error_detail(error, stage)
         if isinstance(error, ModuleNotFoundError):
             detail = '缺少链接导入组件，请同步项目依赖或重新安装完整版本的 Sona。'
         if isinstance(error, ValueError) and str(error).startswith(('该单集', '音频', '下载内容')):

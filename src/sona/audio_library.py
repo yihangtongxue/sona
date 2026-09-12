@@ -110,7 +110,7 @@ class AudioLibrary:
             records = [dict(row) for row in connection.execute(
                 """SELECT a.*, t.status AS transcription_status, t.detail AS transcription_detail,
                     t.error AS transcription_error, t.model_id, t.device,
-                    p.platform, p.source_url, p.podcast_title, 0 AS is_podcast_import,
+                    p.platform, p.source_url, p.podcast_title, 0 AS is_podcast_import, 'transcription' AS source_kind,
                     EXISTS(SELECT 1 FROM transcription_results r WHERE r.audio_id=a.id) AS has_result
                     FROM audio_files a LEFT JOIN transcription_tasks t ON t.audio_id=a.id
                     LEFT JOIN podcast_imports p ON p.id=a.id
@@ -120,9 +120,17 @@ class AudioLibrary:
                 total_bytes AS size_bytes,created_at AS imported_at,status AS transcription_status,
                 detail AS transcription_detail,'' AS transcription_error,0 AS has_result,
                 platform,source_url,podcast_title,1 AS is_podcast_import,stage,downloaded_bytes,total_bytes
-                FROM podcast_imports p WHERE NOT EXISTS(SELECT 1 FROM audio_files a WHERE a.id=p.id)""")]
+                FROM podcast_imports p WHERE NOT EXISTS(SELECT 1 FROM audio_files a WHERE a.id=p.id)
+                AND NOT EXISTS(SELECT 1 FROM subtitle_results s WHERE s.import_id=p.id)""")]
+            subtitles = [dict(row) for row in connection.execute('''SELECT p.id,p.name,'' AS suffix,
+                s.size_bytes,p.created_at AS imported_at,'completed' AS transcription_status,
+                '' AS transcription_detail,'' AS transcription_error,NULL AS model_id,'' AS device,
+                p.platform,p.source_url,p.podcast_title,0 AS is_podcast_import,1 AS has_result,
+                s.source_kind,s.language,0 AS available
+                FROM subtitle_results s JOIN podcast_imports p ON p.id=s.import_id''')]
         records = [{**record, "available": self._path(record).is_file()} for record in records]
         records.extend({**record, 'available': False} for record in pending)
+        records.extend(subtitles)
         return sorted(records, key=lambda record: (record['imported_at'], record['id']), reverse=True)
 
     def adopt_download(self, job: dict, directory: Path) -> None:

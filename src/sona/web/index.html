@@ -64,6 +64,7 @@
               </div>
             </div>
             <h2 id="transcript-title" tabindex="-1"></h2>
+            <p id="transcript-source" class="podcast-next-step" hidden></p>
             <div id="transcript-content" class="transcript-content"></div>
           </article>
           <div class="audio-feedback" id="audio-feedback" hidden>
@@ -217,6 +218,34 @@
         <input id="podcast-url" type="text" inputmode="url" required maxlength="4096" autocomplete="off" autofocus
                spellcheck="false" placeholder="粘贴播客链接" aria-describedby="podcast-help podcast-error" />
         <p id="podcast-error" class="podcast-error" role="alert" hidden></p>
+        <div id="youtube-options" hidden>
+          <label id="youtube-strategy-label" for="youtube-strategy">获取方式</label>
+          <div class="custom-select" id="youtube-strategy-select">
+            <button class="select-trigger" id="youtube-strategy" data-select-trigger type="button" role="combobox" aria-labelledby="youtube-strategy-label" aria-haspopup="listbox" aria-controls="youtube-strategy-menu" aria-expanded="false">
+              <span data-select-value>字幕优先</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+            </button>
+            <div class="select-menu" id="youtube-strategy-menu" data-select-menu role="listbox" aria-labelledby="youtube-strategy-label" hidden>
+              <div class="select-option" id="youtube-strategy-subtitles" data-select-option="subtitle_first" role="option" aria-selected="true">字幕优先</div>
+              <div class="select-option" id="youtube-strategy-transcribe" data-select-option="transcribe" role="option" aria-selected="false">始终本地转录</div>
+            </div>
+          </div>
+          <div id="youtube-language-field">
+            <label id="youtube-language-label" for="youtube-language">字幕语言</label>
+            <div class="custom-select" id="youtube-language-select">
+              <button class="select-trigger" id="youtube-language" data-select-trigger type="button" role="combobox" aria-labelledby="youtube-language-label" aria-haspopup="listbox" aria-controls="youtube-language-menu" aria-expanded="false">
+                <span data-select-value>自动（视频原语言）</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+              </button>
+              <div class="select-menu" id="youtube-language-menu" data-select-menu role="listbox" aria-labelledby="youtube-language-label" hidden>
+                <div class="select-option" id="youtube-language-original" data-select-option="original" role="option" aria-selected="true">自动（视频原语言）</div>
+                <div class="select-option" id="youtube-language-zh" data-select-option="zh" role="option" aria-selected="false">中文</div>
+                <div class="select-option" id="youtube-language-en" data-select-option="en" role="option" aria-selected="false">英语</div>
+                <div class="select-option" id="youtube-language-ja" data-select-option="ja" role="option" aria-selected="false">日语</div>
+                <div class="select-option" id="youtube-language-ko" data-select-option="ko" role="option" aria-selected="false">韩语</div>
+              </div>
+            </div>
+          </div>
+          <p class="podcast-next-step">同语言优先人工字幕，其次自动字幕，不使用自动翻译。字幕不可用时转录原音轨；已有记录会直接定位，如需更换方式请先删除原记录。</p>
+        </div>
         <p class="podcast-next-step">完成后，在「我的音频」查看文字。</p>
         <div class="dialog-actions">
           <button class="secondary-button" id="podcast-cancel" type="button">取消</button>

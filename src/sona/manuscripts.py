@@ -166,8 +166,10 @@ class ManuscriptRepository:
             db.execute("BEGIN IMMEDIATE")
             source = db.execute(
                 """SELECT r.text FROM transcription_results r JOIN transcription_tasks t
-                   ON t.audio_id=r.audio_id WHERE r.audio_id=? AND t.status='completed'""",
-                (audio_id,),
+                   ON t.audio_id=r.audio_id WHERE r.audio_id=? AND t.status='completed'
+                   UNION ALL SELECT s.text FROM subtitle_results s JOIN podcast_imports p ON p.id=s.import_id
+                   WHERE s.import_id=? AND p.status='imported'""",
+                (audio_id, audio_id),
             ).fetchone()
             if source is None or not source["text"].strip():
                 raise ValueError("没有可优化的转录正文。")

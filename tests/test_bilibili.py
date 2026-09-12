@@ -102,8 +102,12 @@ class MigrationTests(unittest.TestCase):
             database = Path(directory) / 'sona.sqlite3'
             with sqlite3.connect(database) as db:
                 for statement in SCHEMA:
-                    if 'CREATE TABLE IF NOT EXISTS media_import_aliases' not in statement:
-                        db.execute(statement.replace("'xiaoyuzhou','apple','bilibili'", "'xiaoyuzhou','apple'"))
+                    if not any(f'CREATE TABLE IF NOT EXISTS {table}' in statement
+                               for table in ('media_import_aliases', 'subtitle_results')):
+                        statement = statement.replace("'xiaoyuzhou','apple','bilibili','youtube'", "'xiaoyuzhou','apple'")
+                        statement = '\n'.join(line for line in statement.splitlines()
+                                              if 'strategy TEXT' not in line and 'subtitle_language TEXT' not in line)
+                        db.execute(statement)
                 db.execute('PRAGMA user_version=7')
                 db.execute("INSERT INTO podcast_imports(id,platform,episode_id,source_url,status,name) "
                            "VALUES ('saved','apple','123','https://podcasts.apple.com/cn/podcast/id1?i=123','imported','保留标题')")

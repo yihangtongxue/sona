@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from deno import find_deno_bin
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata
 
@@ -9,10 +10,10 @@ version = os.environ["SONA_BUILD_VERSION"]
 datas = [(str(root / "src/sona/web"), "sona/web"),
          (str(root / "src/sona/model_catalog.json"), "sona"),
          (str(stage / "update-public-key.json"), "sona/updates")]
-binaries = []
+binaries = [(find_deno_bin(), "sona/native")]
 hiddenimports = ["webview.platforms.winforms", "webview.platforms.edgechromium", "keyring.backends.Windows",
                  "clr", "pythonnet", "certifi", "cryptography"]
-for package in ("faster_whisper", "ctranslate2", "av", "litellm", "tiktoken", "tiktoken_ext", "clr_loader", "yt_dlp"):
+for package in ("faster_whisper", "ctranslate2", "av", "litellm", "tiktoken", "tiktoken_ext", "clr_loader", "yt_dlp", "yt_dlp_ejs", "curl_cffi"):
     package_data, package_bins, package_imports = collect_all(package)
     datas += package_data
     binaries += package_bins
@@ -20,7 +21,7 @@ for package in ("faster_whisper", "ctranslate2", "av", "litellm", "tiktoken", "t
 datas += collect_data_files("webview")
 datas += collect_data_files("pythonnet")
 hiddenimports += collect_submodules("sona")
-for distribution in ("sona", "pywebview", "keyring", "faster-whisper", "ctranslate2", "av", "litellm", "cryptography", "pythonnet", "yt-dlp"):
+for distribution in ("sona", "pywebview", "keyring", "faster-whisper", "ctranslate2", "av", "litellm", "cryptography", "pythonnet", "yt-dlp", "yt-dlp-ejs"):
     datas += copy_metadata(distribution)
 
 a = Analysis([str(root / "packaging/macos/entry.py")], pathex=[str(root / "src")],

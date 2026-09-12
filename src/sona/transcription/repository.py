@@ -129,8 +129,14 @@ class TaskRepository:
 
     def result(self, identifier):
         with self.connection() as db:
-            row = db.execute("""SELECT r.*, a.name FROM transcription_results r
+            row = db.execute("""SELECT r.*, a.name,'transcription' AS source_kind FROM transcription_results r
                 JOIN audio_files a ON a.id=r.audio_id WHERE r.audio_id=?""", (identifier,)).fetchone()
+            if not row:
+                row = db.execute('''SELECT s.import_id AS audio_id,s.text,s.segments_json,s.language,
+                    s.duration,s.source_kind,s.completed_at,p.name,p.source_url,NULL AS model_id,
+                    NULL AS engine,NULL AS model_revision,NULL AS device
+                    FROM subtitle_results s JOIN podcast_imports p ON p.id=s.import_id
+                    WHERE s.import_id=? AND p.status='imported' ''', (identifier,)).fetchone()
         if not row:
             raise ValueError("转录结果尚未生成。")
         result = dict(row)

@@ -166,8 +166,8 @@ class AppApi:
         return self._audio_library.list_files()
 
     @log_api_call
-    def import_podcast(self, url: str) -> dict:
-        return self._podcasts.create(url)
+    def import_podcast(self, url: str, strategy: str = 'subtitle_first', subtitle_language: str = 'original') -> dict:
+        return self._podcasts.create(url, strategy, subtitle_language)
 
     @log_api_call
     def cancel_podcast_import(self, identifier: str) -> None:

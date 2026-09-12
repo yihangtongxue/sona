@@ -27,6 +27,7 @@ const labels = {
   waiting_fetch: "等待获取", resolving: "解析中", downloading: "下载中",
   importing: "正在入库", interrupted: "获取中断",
 };
+const sourceLabels = { manual_subtitles: "人工字幕", automatic_subtitles: "自动字幕", transcription: "本地转录" };
 const rows = new Map();
 let requestQueue = Promise.resolve();
 let busy = false;
@@ -54,16 +55,19 @@ function taskPresentation(record) {
   let progress = "";
   if (record.is_podcast_import) {
     if (record.transcription_status === "failed") {
-      label = { resolving: "解析失败", downloading: "下载失败", processing: "音频转换失败", importing: "入库失败" }[record.stage] ?? "获取失败";
+      label = { resolving: "解析失败", downloading: "下载失败", subtitles: "字幕获取失败", processing: "音频转换失败", importing: "入库失败" }[record.stage] ?? "获取失败";
     }
     if (record.transcription_status === "downloading" && record.stage === "processing") {
       label = "正在转换为 MP3";
+    } else if (record.transcription_status === "downloading" && record.stage === "subtitles") {
+      label = "正在获取字幕";
     } else if (record.transcription_status === "downloading") {
       progress = record.total_bytes > 0
         ? `${Math.min(100, Math.floor(record.downloaded_bytes / record.total_bytes * 100))}% · ${formatBytes(record.downloaded_bytes)}`
         : `已下载 ${formatBytes(record.downloaded_bytes)}`;
     }
-    if (record.transcription_status === "importing") explanation = "下载完成，正在等待入库并加入转录队列。";
+    if (record.transcription_status === "importing") explanation = record.stage === "subtitles"
+      ? "字幕已获取，正在保存文字结果。" : "下载完成，正在等待入库并加入转录队列。";
   }
   if (record.transcription_status === "transcribing") {
     const stages = { "正在准备转录。": "准备中", "正在加载模型。": "加载中", "正在转录。": "转录中" };
@@ -159,8 +163,9 @@ function render(records) {
       if (record.platform) {
         const source = document.createElement("small");
         source.className = "audio-source";
-        const platform = { apple: "Apple Podcasts", xiaoyuzhou: "小宇宙", bilibili: "哔哩哔哩" }[record.platform] ?? record.platform;
-        source.textContent = [record.podcast_title, platform].filter(Boolean).join(" · ");
+        const platform = { apple: "Apple Podcasts", xiaoyuzhou: "小宇宙", bilibili: "哔哩哔哩", youtube: "YouTube" }[record.platform] ?? record.platform;
+        source.textContent = [record.podcast_title, platform,
+          record.platform === "youtube" ? sourceLabels[record.source_kind] : ""].filter(Boolean).join(" · ");
         source.title = source.textContent;
         name.append(source);
       }
@@ -171,7 +176,7 @@ function render(records) {
       }
       const size = row.insertCell();
       size.className = "audio-size";
-      size.textContent = record.size_bytes > 0 ? formatBytes(record.size_bytes) : "—";
+      size.textContent = record.source_kind?.endsWith("subtitles") ? "字幕" : record.size_bytes > 0 ? formatBytes(record.size_bytes) : "—";
       const imported = new Date(record.imported_at);
       row.insertCell().textContent = Number.isNaN(imported.getTime()) ? "—" : dateFormat.format(imported);
       const state = row.insertCell();
@@ -334,6 +339,9 @@ function showResult(result) {
   tableRegion.hidden = true;
   transcript.hidden = false;
   transcriptTitle.textContent = result.name;
+  const source = document.querySelector("#transcript-source");
+  source.hidden = false;
+  source.textContent = [sourceLabels[result.source_kind] ?? "本地转录", result.language].filter(Boolean).join(" · ");
   copyButton.disabled = !result.text;
   optimizeButton.disabled = creatingManuscript || !result.text?.trim();
   transcriptContent.replaceChildren();
