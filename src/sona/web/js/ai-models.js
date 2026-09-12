@@ -309,11 +309,10 @@ async function openEditor(identifier = null) {
     if (typeof secret !== "string" || !secret) throw new Error("无法读取已保存的 API Key。");
     form.elements.api_key.value = secret;
     keyAutofilled = Boolean(secret);
-  } catch {
+  } catch (error) {
     if (version !== keyReadVersion || !dialog.open) return;
-    formError.textContent = readOnly
-      ? "无法读取 API Key，请检查系统凭据访问权限后重新打开。"
-      : "无法回填 API Key，请检查系统凭据访问权限后重新打开，或填写新密钥。";
+    const reason = String(error?.message ?? "无法读取已保存的 API Key。");
+    formError.textContent = readOnly ? reason : `${reason} 可以填写新密钥后重新保存。`;
     formError.hidden = false;
   } finally {
     if (version === keyReadVersion && dialog.open) {

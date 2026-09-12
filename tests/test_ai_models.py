@@ -21,7 +21,7 @@ class AIModelManagementTests(unittest.TestCase):
         self.service = AIModelService(self.database)
         self.secrets = {}
         for method, implementation in (
-            ("_read_secret", lambda ref: self.secrets.get(ref, "")),
+            ("_read_secret", lambda ref, **kwargs: self.secrets.get(ref, "")),
             ("_save_secret", lambda ref, value: self.secrets.__setitem__(ref, value)),
             ("_delete_secret", lambda ref: self.secrets.pop(ref, None)),
         ):

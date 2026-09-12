@@ -11,6 +11,7 @@ from functools import wraps
 from pathlib import Path
 from urllib.parse import urlparse
 
+from .credentials import CredentialError, LOCAL_KEY_PREFIX, LocalCredentialStore
 from .file_lock import FileLocked, exclusive_file_lock
 from .generation_budget import GenerationLimitError, model_budget
 
@@ -34,10 +35,6 @@ OFFICIAL_API_BASES = {
     "zhipu": "https://open.bigmodel.cn/api/paas/v4",
     "zhipu-coding": "https://open.bigmodel.cn/api/coding/paas/v4",
 }
-
-
-class CredentialError(ValueError):
-    """A user-facing credential error without backend exception details."""
 
 
 class ModelTestError(ValueError):
@@ -241,10 +238,13 @@ class AIModelService:
     def __init__(self, database) -> None:
         self.repository = AIModelRepository(database)
         self._lock_path = Path(database).with_suffix(".ai-models.lock")
+        self._credentials = LocalCredentialStore(Path(database).parent / "credentials")
+        self._legacy_read_failures: set[str] = set()
 
     def list_models(self) -> list[dict[str, object]]:
         return self.repository.list_profiles()
 
+    @model_operation
     def get_model_api_key(self, identifier: str) -> str:
         """Read a credential only for the editor, never as part of the model list."""
         profile = self.repository.get_profile(identifier)
@@ -277,7 +277,7 @@ class AIModelService:
         )
         # Reuse unchanged credentials; an unreadable old key must not block replacement.
         try:
-            old_secret = self._read_secret(current.get("api_key_ref"))
+            old_secret = self._read_secret(current.get("api_key_ref"), migrate_legacy=False)
         except CredentialError:
             old_secret = ""
         if old_secret and old_secret == api_key.strip():
@@ -500,9 +500,9 @@ class AIModelService:
         secret = api_key.strip()
         if not secret:
             raise ValueError("请填写 API Key。")
-        key_ref = str(uuid.uuid4())
+        key_ref = LOCAL_KEY_PREFIX + str(uuid.uuid4())
         # Reserve cleanup before writing; committing a profile claims the reference.
-        # Interrupted saves and failed keyring deletes are retried on the next operation.
+        # Interrupted saves and failed local deletes are retried on the next operation.
         with self.repository.connection() as db:
             db.execute("INSERT INTO ai_credential_cleanup VALUES (?)", (key_ref,))
         self._save_secret(key_ref, secret)
@@ -581,35 +581,33 @@ class AIModelService:
         }[provider]
         return f"{prefix}/{model_name}"
 
-    @staticmethod
-    def _read_secret(key_ref: object) -> str:
+    def _read_secret(self, key_ref: object, *, migrate_legacy: bool = True) -> str:
         if not key_ref:
             return ""
+        reference = str(key_ref)
+        secret = self._credentials.read(reference)
+        if secret or reference.startswith(LOCAL_KEY_PREFIX) or not migrate_legacy:
+            return secret
+        # Preserve legacy references so queued jobs and verification remain valid.
+        # Import only when the key is actually needed, never on list/save/cleanup.
+        if reference in self._legacy_read_failures:
+            raise CredentialError("旧 API Key 尚未迁移，请重新打开应用后允许钥匙串访问，或填写新密钥。")
+        self._legacy_read_failures.add(reference)
         try:
             import keyring
-            return keyring.get_password(KEYRING_SERVICE, str(key_ref)) or ""
-        except ImportError:
-            raise CredentialError("安全凭据组件未安装，请先同步项目依赖。") from None
+            secret = keyring.get_password(KEYRING_SERVICE, reference) or ""
         except Exception:
-            raise CredentialError("无法读取密钥，请解锁系统凭据管理器后重试。") from None
+            raise CredentialError("无法迁移旧 API Key，请允许钥匙串访问；也可以填写新密钥并保存到本地。") from None
+        if not secret:
+            return ""
+        self._credentials.save(reference, secret)
+        self._legacy_read_failures.discard(reference)
+        return secret
 
-    @staticmethod
-    def _save_secret(key_ref: str, secret: str) -> None:
-        try:
-            import keyring
-            keyring.set_password(KEYRING_SERVICE, key_ref, secret)
-        except ImportError:
-            raise CredentialError("安全凭据组件未安装，请先同步项目依赖。") from None
-        except Exception:
-            raise CredentialError("无法保存密钥，请允许 Sona 访问系统凭据管理器后重试。") from None
+    def _save_secret(self, key_ref: str, secret: str) -> None:
+        self._credentials.save(key_ref, secret)
 
-    @staticmethod
-    def _delete_secret(key_ref: str) -> None:
-        try:
-            import keyring
-            if keyring.get_password(KEYRING_SERVICE, key_ref) is not None:
-                keyring.delete_password(KEYRING_SERVICE, key_ref)
-        except ImportError:
-            raise CredentialError("安全凭据组件未安装，请先同步项目依赖。") from None
-        except Exception:
-            raise CredentialError("暂时无法清理密钥，将在下次模型操作时重试。") from None
+    def _delete_secret(self, key_ref: str) -> None:
+        # Do not access legacy keychain entries here: even cleanup can prompt.
+        # Old OS entries are retained for manual removal in the credential manager.
+        self._credentials.delete(key_ref)
