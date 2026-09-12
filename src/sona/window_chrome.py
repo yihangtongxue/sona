@@ -9,6 +9,10 @@ logger = logging.getLogger(__name__)
 
 
 def configure_window_chrome(window, appearance) -> None:
+    if sys.platform == "win32":
+        from .windows_chrome import configure_windows_chrome
+        configure_windows_chrome(window, appearance)
+        return
     if sys.platform != "darwin":
         return
 
