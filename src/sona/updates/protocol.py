@@ -16,8 +16,6 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
-import certifi
-
 from ..version import UPDATE_MANIFEST_URL, VERSION
 from .signatures import SignatureError, verify_signature
 
@@ -88,6 +86,10 @@ class SafeRedirect(HTTPRedirectHandler):
 
 
 def open_public(url):
+    # Release metadata/signing tools also import version_tuple from this module,
+    # but do not make network requests or install the desktop dependencies.
+    import certifi
+
     public_url(url, resolve=True)
     request = Request(url, headers={"User-Agent": f"Sona/{VERSION}", "Accept": "application/json, application/octet-stream"})
     # Keep the original hostname for proxy routing and TLS certificate validation,
