@@ -3,8 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
     <title>Sona</title>
+    <script src="js/theme-bootstrap.js"></script>
     <link rel="stylesheet" href="css/app.css" />
     <script src="js/app.js" type="module"></script>
   </head>
@@ -48,9 +49,9 @@
           </div>
         </section>
         <section class="view" data-panel="library" aria-label="我的音频" hidden>
-          <div class="audio-table-wrap" id="audio-table-region">
+          <div class="audio-table-wrap" id="audio-table-region" role="region" aria-label="音频列表" tabindex="0">
             <table class="audio-table" aria-label="历史音频">
-              <thead><tr><th scope="col">名称</th><th scope="col">大小</th><th scope="col">导入时间</th><th scope="col">状态</th><th scope="col" class="audio-operations">操作</th></tr></thead>
+              <thead><tr><th scope="col">名称</th><th scope="col" class="audio-size">大小</th><th scope="col">导入时间</th><th scope="col">状态</th><th scope="col" class="audio-operations">操作</th></tr></thead>
               <tbody id="audio-list"><tr><td colspan="5" class="audio-empty">正在读取…</td></tr></tbody>
             </table>
           </div>
@@ -71,7 +72,7 @@
           </div>
         </section>
         <section class="view" data-panel="manuscripts" aria-label="文稿" hidden>
-          <div class="audio-table-wrap" id="manuscript-table-region">
+          <div class="audio-table-wrap" id="manuscript-table-region" role="region" aria-label="文稿列表" tabindex="0">
             <table class="audio-table manuscript-table" aria-label="文稿列表">
               <thead><tr><th scope="col">标题</th><th scope="col">创建时间</th><th scope="col">状态</th><th scope="col" class="audio-operations">操作</th></tr></thead>
               <tbody id="manuscript-list"><tr><td colspan="4" class="audio-empty">正在读取…</td></tr></tbody>
@@ -95,6 +96,22 @@
         <section class="view settings-view" data-panel="settings" aria-labelledby="settings-title" hidden>
           <h1 class="sr-only" id="settings-title">设置</h1>
           <div class="settings-groups">
+            <section class="settings-group" aria-labelledby="appearance-title">
+              <div class="group-heading"><h2 id="appearance-title">外观</h2></div>
+              <div class="appearance-row">
+                <div class="appearance-info">
+                  <label for="appearance-theme">主题模式</label>
+                  <p id="appearance-description">跟随系统自动切换，也可以固定使用浅色或深色。</p>
+                </div>
+                <select id="appearance-theme" aria-describedby="appearance-description" disabled>
+                  <option value="system">跟随系统</option>
+                  <option value="light">浅色</option>
+                  <option value="dark">深色</option>
+                </select>
+              </div>
+              <p class="appearance-feedback" id="appearance-feedback" role="status" hidden></p>
+              <button class="secondary-button" id="appearance-retry" type="button" hidden>重新加载</button>
+            </section>
             <section class="settings-group" aria-labelledby="acceleration-title">
               <div class="group-heading"><h2 id="acceleration-title">转录加速</h2></div>
               <div class="acceleration-row">

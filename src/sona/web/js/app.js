@@ -6,6 +6,7 @@ import { openManuscripts } from "./manuscripts.js";
 import { showToast } from "./toast.js";
 import { openAbout } from "./updates.js";
 import { initializeImportSources } from "./import-sources.js";
+import { openAppearanceSettings } from "./appearance.js";
 
 const navigationItems = document.querySelectorAll("[data-view]");
 const panels = document.querySelectorAll("[data-panel]");
@@ -34,6 +35,7 @@ function showView(viewName) {
     panel.hidden = panel.dataset.panel !== viewName;
   });
   if (viewName === "settings") {
+    openAppearanceSettings();
     openModelSettings();
     openAIModelSettings();
     openAccelerationSettings();

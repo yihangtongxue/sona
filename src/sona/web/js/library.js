@@ -110,7 +110,7 @@ function showError(error) {
 function makeButton(method, text, record) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = `secondary-button${method === "delete_audio" ? " audio-delete" : ""}`;
+  button.className = `table-action${method === "delete_audio" ? " audio-delete" : ""}${method.startsWith("cancel_") ? " is-secondary" : ""}`;
   button.textContent = text;
   button.dataset.method = method;
   button.setAttribute("aria-label", `${text}：${record.name}`);
@@ -152,11 +152,13 @@ function render(records) {
       name.className = "audio-name";
       const title = document.createElement("strong");
       title.textContent = record.name;
+      title.title = record.name;
       name.append(title);
       if (record.platform) {
         const source = document.createElement("small");
         source.className = "audio-source";
         source.textContent = [record.podcast_title, record.platform === "apple" ? "Apple Podcasts" : "小宇宙"].filter(Boolean).join(" · ");
+        source.title = source.textContent;
         name.append(source);
       }
       if (!record.is_podcast_import && !record.available && !(record.transcription_status === "completed" && record.has_result)) {
@@ -164,7 +166,9 @@ function render(records) {
         missing.textContent = "文件已丢失";
         name.append(missing);
       }
-      row.insertCell().textContent = record.size_bytes > 0 ? formatBytes(record.size_bytes) : "—";
+      const size = row.insertCell();
+      size.className = "audio-size";
+      size.textContent = record.size_bytes > 0 ? formatBytes(record.size_bytes) : "—";
       const imported = new Date(record.imported_at);
       row.insertCell().textContent = Number.isNaN(imported.getTime()) ? "—" : dateFormat.format(imported);
       const state = row.insertCell();

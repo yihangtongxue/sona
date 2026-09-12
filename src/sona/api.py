@@ -45,7 +45,7 @@ class AppApi:
     def __init__(self, model_service: ModelService, audio_library: AudioLibrary, transcription,
                  acceleration=None, ai_model_service: AIModelService | None = None,
                  manuscripts=None, updates=None, activity=None, consent=None, diagnostics=None,
-                 podcasts=None) -> None:
+                 podcasts=None, appearance=None) -> None:
         self._model_service = model_service
         self._audio_library = audio_library
         self._transcription = transcription
@@ -57,6 +57,14 @@ class AppApi:
         self._consent = consent
         self._diagnostics = diagnostics
         self._podcasts = podcasts
+        self._appearance = appearance
+
+    def get_theme(self) -> str:
+        return self._appearance.get_theme()
+
+    @log_api_call
+    def set_theme(self, theme: str) -> str:
+        return self._appearance.set_theme(theme)
 
     def ai_usage_notice_required(self) -> bool:
         # Resolve setup problems before asking the user to approve a request

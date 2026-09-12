@@ -27,6 +27,8 @@ from .consent import AIUsageConsent
 from .diagnostics import export_bundle
 from .podcasts.service import PodcastService
 from .localization import WEBVIEW_ZH
+from .window_chrome import configure_window_chrome
+from .appearance import AppearanceSettings
 
 
 def main() -> None:
@@ -48,6 +50,7 @@ def _run_app(paths) -> None:
                 sys.platform, platform.machine(), platform.python_version(), paths.environment,
                 transcription_engine(), paths.data_dir)
     repository = ModelRepository(paths.database, BUILTIN_MODELS)
+    appearance = AppearanceSettings(paths.data_dir)
     audio_library = AudioLibrary(paths.database, paths.audio_dir)
     whisper_provider = WhisperBundleProvider(paths.models_dir, paths.downloads_dir)
     apple_provider = AppleSpeechProvider()
@@ -83,10 +86,12 @@ def _run_app(paths) -> None:
         window = webview.create_window(
             "Sona", str(web_root / "index.html"),
             width=960, height=640, min_size=(720, 480),
+            background_color="#141414" if appearance.get_theme() == "dark" else "#f9f9f9",
             js_api=AppApi(model_service, audio_library, transcription, acceleration, ai_model_service,
                           manuscripts, updates, activity, consent=AIUsageConsent(paths.data_dir),
-                          diagnostics=export_diagnostics, podcasts=podcasts),
+                          diagnostics=export_diagnostics, podcasts=podcasts, appearance=appearance),
         )
+        configure_window_chrome(window, appearance)
         updates.bind_window(window.destroy)
         updates.start_automatic_checks()
         # pywebview's Windows backend requires an .ico file; passing the macOS

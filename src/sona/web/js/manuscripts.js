@@ -35,7 +35,7 @@ function showError(error) {
 function button(label, method, record) {
   const element = document.createElement("button");
   element.type = "button";
-  element.className = `secondary-button${method === "delete_manuscript" ? " audio-delete" : ""}`;
+  element.className = `table-action${method === "delete_manuscript" ? " audio-delete" : ""}`;
   element.textContent = label;
   element.dataset.method = method;
   element.setAttribute("aria-label", `${label}：${record.title}`);
@@ -74,6 +74,7 @@ function render(records) {
       name.className = "audio-name";
       const heading = document.createElement("strong");
       heading.textContent = record.title;
+      heading.title = record.title;
       name.append(heading);
       const date = new Date(record.created_at);
       row.insertCell().textContent = Number.isNaN(date.getTime()) ? "—" : dateFormat.format(date);
