@@ -26,6 +26,8 @@ SAFE_VALUES = frozenset({
     "cancelled", "ready", "untested", "optimizing", "status", "download", "select",
     "delete", "pause", "enable", "disable", "check", "stop", "length", "content_filter",
     "sensitive", "network_error", "model_context_window_exceeded", "tool_calls",
+    "update_tls_certificate", "update_tls_connection", "update_timeout", "update_dns",
+    "update_manifest_json", "update_connection", "update_unknown",
 })
 UUID_PATTERN = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\Z")
 

@@ -3,19 +3,25 @@
 import hashlib
 import ipaddress
 import json
+import logging
 import re
 import socket
+import ssl
 import platform
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
+
+import certifi
 
 from ..version import UPDATE_MANIFEST_URL, VERSION
 from .signatures import SignatureError, verify_signature
+
+logger = logging.getLogger(__name__)
 
 MAX_PACKAGE_BYTES = 4 * 1024**3
 MAX_MANIFEST_BYTES = 256 * 1024
@@ -86,8 +92,12 @@ def open_public(url):
     request = Request(url, headers={"User-Agent": f"Sona/{VERSION}", "Accept": "application/json, application/octet-stream"})
     # Keep the original hostname for proxy routing and TLS certificate validation,
     # including when DNS returns a synthetic proxy address. Redirects are revalidated.
-    # No cookies, auth handlers or custom TLS exceptions.
-    return build_opener(SafeRedirect()).open(request, timeout=20)
+    # Frozen Python's default CA path can point at the build machine. Add the
+    # bundled CA roots while retaining available system/custom trust roots.
+    # Certificate and hostname verification remain enabled for every redirect.
+    context = ssl.create_default_context()
+    context.load_verify_locations(cafile=certifi.where())
+    return build_opener(SafeRedirect(), HTTPSHandler(context=context)).open(request, timeout=20)
 
 
 @dataclass(frozen=True)
@@ -164,6 +174,7 @@ def fetch_manifest():
             raise UpdateError("未读取到有效的更新清单。")
         return manifest
     except HTTPError as error:
+        logger.warning("更新清单 HTTP 请求失败 status=%s", error.code)
         if error.code == 404:
             return None
         if error.code == 401:
@@ -173,8 +184,32 @@ def fetch_manifest():
         raise UpdateError("版本服务器暂时不可用，请稍后重试。") from None
     except UpdateError:
         raise
-    except Exception:
-        raise UpdateError("检查更新失败，请检查网络或发布清单。") from None
+    except Exception as error:
+        reason = error.reason if isinstance(error, URLError) else error
+        if isinstance(reason, ssl.SSLCertVerificationError):
+            category = "update_tls_certificate"
+            message = "无法验证更新服务器的 HTTPS 证书，请检查系统时间、代理证书或联系作者。"
+        elif isinstance(reason, ssl.SSLError):
+            category = "update_tls_connection"
+            message = "无法与更新服务器建立安全连接，请检查网络或代理设置。"
+        elif isinstance(reason, TimeoutError):
+            category = "update_timeout"
+            message = "连接更新服务器超时，请检查网络或代理设置后重试。"
+        elif isinstance(reason, socket.gaierror):
+            category = "update_dns"
+            message = "无法解析更新服务器地址，请检查网络或代理设置。"
+        elif isinstance(error, (json.JSONDecodeError, UnicodeError)):
+            category = "update_manifest_json"
+            message = "更新服务器返回的内容不是有效的 JSON 清单，请检查代理或联系作者。"
+        elif isinstance(error, URLError):
+            category = "update_connection"
+            message = "无法连接 GitHub 更新服务器，请检查网络或代理设置后重试。"
+        else:
+            category = "update_unknown"
+            message = "检查更新失败，请导出日志并联系作者。"
+        # Fixed categories only: exception text may contain URLs/proxy secrets.
+        logger.warning("更新清单读取失败 category=%s", category)
+        raise UpdateError(message) from None
 
 
 def download(release: Release, destination: Path, cancelled, progress):

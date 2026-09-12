@@ -2012,10 +2012,11 @@ wheels = [
 
 [[package]]
 name = "sona"
-version = "1.0.0"
+version = "1.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "av" },
+    { name = "certifi" },
     { name = "cryptography" },
     { name = "faster-whisper", marker = "sys_platform != 'darwin'" },
     { name = "keyring" },
@@ -2028,6 +2029,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "av", specifier = ">=14,<17" },
+    { name = "certifi", specifier = ">=2026.7.22" },
     { name = "cryptography", specifier = ">=46,<51" },
     { name = "faster-whisper", marker = "sys_platform != 'darwin'", specifier = ">=1.2.1,<2" },
     { name = "keyring", specifier = ">=25,<27" },

@@ -6,6 +6,7 @@ import io
 import json
 import plistlib
 import socket
+import ssl
 import stat
 import tempfile
 import unittest
@@ -13,13 +14,14 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
-from urllib.error import HTTPError
-from urllib.request import Request
+from urllib.error import HTTPError, URLError
+from urllib.request import HTTPSHandler, Request
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from sona.activity import ActivityGate
 from sona.database import ModelRepository
+from sona.diagnostics import DiagnosticFormatter
 from sona.paths import AppPaths
 from sona.updates.macos import extract_app, installed_bundle, signing_requirement, validate_app
 from sona.updates.protocol import (Release, SafeRedirect, UpdateError, download, fetch_manifest,
@@ -57,7 +59,7 @@ class ProtocolTests(unittest.TestCase):
         self.addCleanup(mocked_key.stop)
 
     def test_identity_and_numeric_version_order(self):
-        self.assertEqual(VERSION, "1.0.0")
+        self.assertEqual(VERSION, "1.0.1")
         self.assertEqual(BUNDLE_ID, "com.yihang.sona")
         self.assertEqual(UPDATE_MANIFEST_URL,
             "https://github.com/yihangtongxue/sona/releases/latest/download/stable.json")
@@ -130,6 +132,43 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(request.full_url, UPDATE_MANIFEST_URL)
         self.assertFalse(request.has_header("Authorization"))
         self.assertFalse(request.has_header("Cookie"))
+
+    def test_public_requests_have_trust_roots_without_build_machine_certificates(self):
+        # Simulate a frozen install whose OpenSSL default CA paths do not exist.
+        with patch("sona.updates.protocol.public_url"), \
+                patch("ssl.SSLContext.load_default_certs"), \
+                patch("sona.updates.protocol.build_opener") as opener:
+            open_public(UPDATE_MANIFEST_URL)
+        handler = next(value for value in opener.call_args.args if isinstance(value, HTTPSHandler))
+        context = handler._context
+        self.assertGreater(context.cert_store_stats()["x509_ca"], 0)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(context.check_hostname)
+        self.assertTrue(any(isinstance(value, SafeRedirect) for value in opener.call_args.args))
+
+    def test_manifest_errors_preserve_safe_diagnostics_and_specific_messages(self):
+        secret = "https://user:secret@example.com/"
+        cases = (
+            (URLError(ssl.SSLCertVerificationError(1, secret)), "证书", "update_tls_certificate"),
+            (URLError(ssl.SSLError(1, secret)), "安全连接", "update_tls_connection"),
+            (URLError(TimeoutError(secret)), "超时", "update_timeout"),
+            (TimeoutError(secret), "超时", "update_timeout"),
+            (URLError(socket.gaierror(-2, secret)), "解析", "update_dns"),
+            (URLError(ConnectionRefusedError(secret)), "无法连接", "update_connection"),
+            (json.JSONDecodeError(secret, "", 0), "JSON", "update_manifest_json"),
+            (RuntimeError(secret), "导出日志", "update_unknown"),
+        )
+        for error, message, category in cases:
+            with self.subTest(category=category), \
+                    patch("sona.updates.protocol.open_public", side_effect=error), \
+                    self.assertLogs("sona.updates.protocol", level="WARNING") as logs:
+                with self.assertRaisesRegex(UpdateError, message) as raised:
+                    fetch_manifest()
+            diagnostic = DiagnosticFormatter().format(logs.records[0])
+            self.assertIn(category, diagnostic)
+            self.assertNotIn(secret, diagnostic)
+            self.assertNotIn(secret, str(raised.exception))
+            self.assertNotIn(secret, " ".join(logs.output))
 
     def test_github_asset_redirect_is_revalidated(self):
         request = Request(manifest()["assets"][0]["downloadUrl"])
@@ -335,7 +374,7 @@ class UpdateStateTests(unittest.TestCase):
             self.service.download()
 
     def test_no_downgrade(self):
-        for version in ("0.9.0", "1.0.0"):
+        for version in ("0.9.0", "1.0.0", VERSION):
             with patch("sona.updates.service.fetch_manifest", return_value=manifest(version)):
                 self.service._check()
             self.assertEqual(self.service.status()["state"], "current")
