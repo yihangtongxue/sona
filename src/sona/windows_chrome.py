@@ -1,19 +1,14 @@
-"""Theme the existing WinForms titlebar and preload the WebView2 page theme."""
+"""Coordinate the custom Windows frame and WebView2 page theme."""
 
-import ctypes
 import json
 import logging
-import sys
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
+from .windows_frame import WindowsFrame
+
 
 logger = logging.getLogger(__name__)
-DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-DWMWA_USE_IMMERSIVE_DARK_MODE_LEGACY = 19
-DWMWA_CAPTION_COLOR = 35
-DWMWA_TEXT_COLOR = 36
-DWMWA_COLOR_DEFAULT = 0xFFFFFFFF
 
 
 def configure_windows_chrome(window, appearance) -> None:
@@ -31,14 +26,7 @@ class _WindowsChrome:
         self.core = None
         self.profile_theme = None
         self.closed = False
-        build = sys.getwindowsversion().build
-        self.native_dark_mode = build >= 17763  # Windows 10 1809+
-        self.exact_colors = build >= 22000
-        self.dark_attribute = DWMWA_USE_IMMERSIVE_DARK_MODE
-        self.titlebar_state = None
-        self.failed_attributes = set()
-        self.set_attribute = None
-        self.set_window_pos = None
+        self.frame = None
         self.bootstrap_url = None
         self.bootstrap_source = None
 
@@ -47,6 +35,7 @@ class _WindowsChrome:
 
         self.native = self.window.native
         self.webview = self.native.webview
+        self.frame = WindowsFrame(self.native)
         # real_url is resolved by pywebview when it starts the local HTTP server.
         self.bootstrap_url = urlsplit(urljoin(self.window.real_url, "js/theme-bootstrap.js"))
         try:
@@ -54,23 +43,9 @@ class _WindowsChrome:
         except OSError:
             logger.exception("无法读取主题预加载脚本，将在页面连接后应用设置")
 
-        if self.native_dark_mode:
-            from ctypes import wintypes
-
-            self.set_attribute = ctypes.WinDLL("dwmapi").DwmSetWindowAttribute
-            self.set_attribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
-            self.set_attribute.restype = ctypes.c_long  # HRESULT
-            self.set_window_pos = ctypes.WinDLL("user32", use_last_error=True).SetWindowPos
-            self.set_window_pos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int,
-                                           ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
-            self.set_window_pos.restype = wintypes.BOOL
-        else:
-            logger.warning("当前 Windows 版本不支持原生深色标题栏，需要 Windows 10 1809 或更新版本")
-
         SystemEvents.UserPreferenceChanged += self.schedule
-        if self.native_dark_mode:
-            # Its system-only handler would override a manually selected theme.
-            SystemEvents.UserPreferenceChanged -= self.native.on_system_theme_changed
+        # The backend's system-only handler must not override our theme.
+        SystemEvents.UserPreferenceChanged -= self.native.on_system_theme_changed
         self.native.FormClosed += self.close
         self.native.HandleCreated += self.schedule
         self.native.Activated += self.schedule
@@ -107,61 +82,18 @@ class _WindowsChrome:
         except OSError:
             return False
 
-    def set_dwm(self, attribute, value, *, warn=True):
-        value = ctypes.c_uint32(value)
-        # HWND is pointer-sized; ToInt32 would truncate it in a 64-bit process.
-        result = self.set_attribute(self.native.Handle.ToInt64(), attribute,
-                                    ctypes.byref(value), ctypes.sizeof(value))
-        if result < 0 and warn and attribute not in self.failed_attributes:
-            self.failed_attributes.add(attribute)
-            logger.warning("系统未接受标题栏属性 %s（HRESULT=%#x），保留系统外观", attribute, result & 0xFFFFFFFF)
-        return result >= 0
-
-    def apply_titlebar_mode(self, dark):
-        if not self.native_dark_mode:
-            return
-        hwnd = self.native.Handle.ToInt64()
-        state = (hwnd, dark)
-        can_fallback = not self.exact_colors and self.dark_attribute == DWMWA_USE_IMMERSIVE_DARK_MODE
-        success = self.set_dwm(self.dark_attribute, int(dark), warn=not can_fallback)
-        if not success and can_fallback:
-            # Older Windows 10 uses attribute 19. Probe 20 first, as in
-            # Microsoft's PowerToys/ZoomIt implementation; never use 19 on Win11.
-            self.dark_attribute = DWMWA_USE_IMMERSIVE_DARK_MODE_LEGACY
-            success = self.set_dwm(self.dark_attribute, int(dark))
-        if success and state != self.titlebar_state:
-            # Repaint after a theme change without moving, resizing, activating
-            # or changing the window's z-order. Retain all native frame behavior.
-            self.titlebar_state = state
-            # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
-            if not self.set_window_pos(hwnd, None, 0, 0, 0, 0, 0x0037):
-                logger.warning("无法刷新 Windows 标题栏（错误码=%s）", ctypes.get_last_error())
-
     def apply(self):
         if self.closed or self.window.events.closed.is_set() or self.native.IsDisposed:
             return
         from System.Drawing import Color
-        from System.Windows.Forms import Form, SystemInformation
 
         theme = self.appearance.get_theme()
         dark = self.is_dark(theme)
         try:
-            # Match --chrome / --canvas in app.css. Only paint; do not change
-            # FormBorderStyle, WndProc, native buttons, resize or snap behavior.
-            chrome = 20 if dark else 249
+            # Match --chrome / --canvas in app.css on both Windows 10 and 11.
+            self.frame.apply(dark)
             canvas = 24 if dark else 255
-            self.native.BackColor = Color.FromArgb(chrome, chrome, chrome)
             self.webview.DefaultBackgroundColor = Color.FromArgb(canvas, canvas, canvas)
-            self.apply_titlebar_mode(dark and not SystemInformation.HighContrast)
-            if self.exact_colors:
-                if SystemInformation.HighContrast:
-                    self.set_dwm(DWMWA_CAPTION_COLOR, DWMWA_COLOR_DEFAULT)
-                    self.set_dwm(DWMWA_TEXT_COLOR, DWMWA_COLOR_DEFAULT)
-                else:
-                    active = Form.ActiveForm == self.native
-                    text = (237 if active else 173) if dark else (32 if active else 102)
-                    self.set_dwm(DWMWA_CAPTION_COLOR, chrome * 0x010101)
-                    self.set_dwm(DWMWA_TEXT_COLOR, text * 0x010101)
         except Exception:
             logger.exception("无法同步 Windows 窗口外观")
 
@@ -236,5 +168,3 @@ class _WindowsChrome:
 
         # Static SystemEvents subscriptions must not retain a closed window.
         SystemEvents.UserPreferenceChanged -= self.schedule
-        if not self.native_dark_mode:
-            SystemEvents.UserPreferenceChanged -= self.native.on_system_theme_changed
