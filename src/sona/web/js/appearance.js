@@ -1,13 +1,19 @@
+import { createDropdown } from "./dropdown.js";
+
 const picker = document.querySelector("#appearance-theme");
 const feedback = document.querySelector("#appearance-feedback");
 const retry = document.querySelector("#appearance-retry");
 const theme = window.sonaTheme;
+const dropdown = createDropdown(document.querySelector("#appearance-select"), {
+  value: theme.preference,
+  onChange: () => picker.dispatchEvent(new Event("change", { bubbles: true })),
+});
 let ready = false;
 let pending = false;
 
 function apply(preference) {
   theme.apply(preference);
-  picker.value = theme.preference;
+  dropdown.setValue(theme.preference);
   // This cache only improves page reloads. The Python setting is authoritative.
   try { localStorage.setItem("sona.theme", theme.preference); } catch { /* Optional cache. */ }
 }
@@ -36,7 +42,6 @@ export async function openAppearanceSettings() {
   }
 }
 
-picker.value = theme.preference;
 picker.addEventListener("change", async () => {
   if (!ready || pending) return;
   const previous = theme.preference;
@@ -54,7 +59,7 @@ picker.addEventListener("change", async () => {
   } finally {
     pending = false;
     picker.disabled = false;
-    // Disabling a select during its change event can move focus to the body.
+    // Disabling the trigger while saving can move focus to the body.
     // Restore keyboard navigation without stealing focus from another control.
     if (hadFocus && document.activeElement === document.body && !picker.closest("[data-panel]").hidden) {
       picker.focus({ preventScroll: true });

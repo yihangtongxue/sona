@@ -1,5 +1,6 @@
 import { showToast } from "./toast.js";
 import { confirmAction } from "./dialog.js";
+import { createDropdown } from "./dropdown.js";
 
 const list = document.querySelector("#ai-models");
 const template = document.querySelector("#ai-model-template");
@@ -12,11 +13,10 @@ const form = document.querySelector("#ai-model-form");
 const dialogTitle = document.querySelector("#ai-model-dialog-title");
 const dialogCancel = document.querySelector("#ai-model-dialog-cancel");
 const providerInput = form.elements.provider;
-const providerOptions = document.querySelectorAll("[data-provider-option]");
-const providerSelect = document.querySelector("#ai-provider-select");
-const providerTrigger = document.querySelector("#ai-provider-trigger");
-const providerMenu = document.querySelector("#ai-provider-options");
-const providerValue = document.querySelector("#ai-provider-value");
+const providerDropdown = createDropdown(document.querySelector("#ai-provider-select"), {
+  value: providerInput.value,
+  onChange: chooseProvider,
+});
 const urlField = document.querySelector("#ai-model-url-field");
 const resetUrlButton = document.querySelector("#ai-model-reset-url");
 const keyToggle = document.querySelector("#ai-model-key-toggle");
@@ -44,7 +44,6 @@ let readOnly = false;
 let saving = false;
 let activeTestId = null;
 let legacyUrlProvider = null;
-let activeProviderIndex = 0;
 let keyLoading = false;
 let keyReadVersion = 0;
 let keyAutofilled = false;
@@ -79,24 +78,8 @@ function updateEditorControls() {
   dialogCancel.disabled = saving;
 }
 
-function highlightProvider(index) {
-  activeProviderIndex = (index + providerOptions.length) % providerOptions.length;
-  providerOptions.forEach((option, position) => option.classList.toggle("is-active", position === activeProviderIndex));
-  const active = providerOptions[activeProviderIndex];
-  providerTrigger.setAttribute("aria-activedescendant", active.id);
-  active.scrollIntoView({ block: "nearest" });
-}
-
 function closeProviderMenu() {
-  providerMenu.hidden = true;
-  providerTrigger.setAttribute("aria-expanded", "false");
-  providerTrigger.removeAttribute("aria-activedescendant");
-}
-
-function openProviderMenu() {
-  providerMenu.hidden = false;
-  providerTrigger.setAttribute("aria-expanded", "true");
-  highlightProvider([...providerOptions].findIndex((option) => option.dataset.providerOption === providerInput.value));
+  providerDropdown.close();
 }
 
 function chooseProvider(provider) {
@@ -107,8 +90,6 @@ function chooseProvider(provider) {
     legacyUrlProvider = null;
   }
   setProvider(provider);
-  closeProviderMenu();
-  providerTrigger.focus({ preventScroll: true });
 }
 
 function updateKeyField() {
@@ -118,12 +99,7 @@ function updateKeyField() {
 
 function setProvider(provider) {
   providerInput.value = provider;
-  providerValue.textContent = providerLabels[provider];
-  providerOptions.forEach((option) => {
-    const selected = option.dataset.providerOption === provider;
-    option.classList.toggle("is-selected", selected);
-    option.setAttribute("aria-selected", String(selected));
-  });
+  providerDropdown.setValue(provider);
   const custom = provider === "openai-compatible";
   const legacy = legacyUrlProvider === provider;
   urlField.hidden = !custom && !legacy;
@@ -389,46 +365,6 @@ async function removeModel(identifier) {
 
 addButton.addEventListener("click", () => openEditor());
 reconnectButton.addEventListener("click", loadModels);
-providerTrigger.addEventListener("click", () => {
-  if (providerMenu.hidden) openProviderMenu();
-  else closeProviderMenu();
-});
-providerOptions.forEach((option) => {
-  option.addEventListener("pointerdown", (event) => event.preventDefault());
-  option.addEventListener("click", () => chooseProvider(option.dataset.providerOption));
-});
-providerTrigger.addEventListener("keydown", (event) => {
-  const key = event.key;
-  if (key === "Escape" && !providerMenu.hidden) {
-    event.preventDefault();
-    event.stopPropagation();
-    closeProviderMenu();
-  } else if (key === "Tab") closeProviderMenu();
-  else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(key)) {
-    event.preventDefault();
-    const wasClosed = providerMenu.hidden;
-    if (wasClosed) openProviderMenu();
-    if (key === "Home") highlightProvider(0);
-    else if (key === "End") highlightProvider(providerOptions.length - 1);
-    else if (!wasClosed) highlightProvider(activeProviderIndex + (key === "ArrowDown" ? 1 : -1));
-  } else if ((key === "Enter" || key === " ") && !providerMenu.hidden) {
-    event.preventDefault();
-    chooseProvider(providerOptions[activeProviderIndex].dataset.providerOption);
-  } else if (key.length === 1 && key !== " " && !event.ctrlKey && !event.metaKey && !event.altKey) {
-    const index = [...providerOptions].findIndex((option) => option.textContent.trim().toLowerCase().startsWith(key.toLowerCase()));
-    if (index >= 0) {
-      event.preventDefault();
-      if (providerMenu.hidden) openProviderMenu();
-      highlightProvider(index);
-    }
-  }
-});
-document.addEventListener("pointerdown", (event) => {
-  if (!providerSelect.contains(event.target)) closeProviderMenu();
-});
-providerSelect.addEventListener("focusout", (event) => {
-  if (!providerSelect.contains(event.relatedTarget)) closeProviderMenu();
-});
 resetUrlButton.addEventListener("click", () => {
   legacyUrlProvider = null;
   form.elements.base_url.value = "";

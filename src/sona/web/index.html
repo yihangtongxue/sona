@@ -100,14 +100,20 @@
               <div class="group-heading"><h2 id="appearance-title">外观</h2></div>
               <div class="appearance-row">
                 <div class="appearance-info">
-                  <label for="appearance-theme">主题模式</label>
+                  <label id="appearance-theme-label" for="appearance-theme">主题模式</label>
                   <p id="appearance-description">跟随系统自动切换，也可以固定使用浅色或深色。</p>
                 </div>
-                <select id="appearance-theme" aria-describedby="appearance-description" disabled>
-                  <option value="system">跟随系统</option>
-                  <option value="light">浅色</option>
-                  <option value="dark">深色</option>
-                </select>
+                <div class="custom-select appearance-select" id="appearance-select">
+                  <button class="select-trigger" id="appearance-theme" data-select-trigger type="button" role="combobox" aria-labelledby="appearance-theme-label" aria-describedby="appearance-description" aria-haspopup="listbox" aria-controls="appearance-options" aria-expanded="false" disabled>
+                    <span data-select-value>跟随系统</span>
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+                  </button>
+                  <div class="select-menu" id="appearance-options" data-select-menu role="listbox" aria-labelledby="appearance-theme-label" hidden>
+                    <div class="select-option" id="appearance-system" data-select-option="system" role="option" aria-selected="true">跟随系统</div>
+                    <div class="select-option" id="appearance-light" data-select-option="light" role="option" aria-selected="false">浅色</div>
+                    <div class="select-option" id="appearance-dark" data-select-option="dark" role="option" aria-selected="false">深色</div>
+                  </div>
+                </div>
               </div>
               <p class="appearance-feedback" id="appearance-feedback" role="status" hidden></p>
               <button class="secondary-button" id="appearance-retry" type="button" hidden>重新加载</button>
@@ -245,18 +251,18 @@
           <div class="ai-model-form-section">
             <div class="ai-model-field">
               <span id="ai-provider-label">供应商</span>
-              <div class="ai-provider-select" id="ai-provider-select">
-                <button class="ai-provider-trigger" id="ai-provider-trigger" type="button" role="combobox" aria-labelledby="ai-provider-label" aria-haspopup="listbox" aria-controls="ai-provider-options" aria-expanded="false">
-                  <span id="ai-provider-value">OpenAI</span>
+              <div class="custom-select" id="ai-provider-select">
+                <button class="select-trigger" id="ai-provider-trigger" data-select-trigger type="button" role="combobox" aria-labelledby="ai-provider-label" aria-haspopup="listbox" aria-controls="ai-provider-options" aria-expanded="false">
+                  <span data-select-value>OpenAI</span>
                   <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
                 </button>
-                <div class="ai-provider-options" id="ai-provider-options" role="listbox" aria-labelledby="ai-provider-label" hidden>
-                  <button class="ai-provider-option is-selected" id="ai-provider-openai" data-provider-option="openai" type="button" role="option" aria-selected="true" tabindex="-1">OpenAI</button>
-                  <button class="ai-provider-option" id="ai-provider-anthropic" data-provider-option="anthropic" type="button" role="option" aria-selected="false" tabindex="-1">Claude</button>
-                  <button class="ai-provider-option" id="ai-provider-google" data-provider-option="google" type="button" role="option" aria-selected="false" tabindex="-1">Google Gemini</button>
-                  <button class="ai-provider-option" id="ai-provider-zhipu" data-provider-option="zhipu" type="button" role="option" aria-selected="false" tabindex="-1">智谱 GLM</button>
-                  <button class="ai-provider-option" id="ai-provider-zhipu-coding" data-provider-option="zhipu-coding" type="button" role="option" aria-selected="false" tabindex="-1">智谱 Coding Plan</button>
-                  <button class="ai-provider-option" id="ai-provider-openai-compatible" data-provider-option="openai-compatible" type="button" role="option" aria-selected="false" tabindex="-1">自定义接口</button>
+                <div class="select-menu" id="ai-provider-options" data-select-menu role="listbox" aria-labelledby="ai-provider-label" hidden>
+                  <div class="select-option" id="ai-provider-openai" data-select-option="openai" role="option" aria-selected="true">OpenAI</div>
+                  <div class="select-option" id="ai-provider-anthropic" data-select-option="anthropic" role="option" aria-selected="false">Claude</div>
+                  <div class="select-option" id="ai-provider-google" data-select-option="google" role="option" aria-selected="false">Google Gemini</div>
+                  <div class="select-option" id="ai-provider-zhipu" data-select-option="zhipu" role="option" aria-selected="false">智谱 GLM</div>
+                  <div class="select-option" id="ai-provider-zhipu-coding" data-select-option="zhipu-coding" role="option" aria-selected="false">智谱 Coding Plan</div>
+                  <div class="select-option" id="ai-provider-openai-compatible" data-select-option="openai-compatible" role="option" aria-selected="false">自定义接口</div>
                 </div>
               </div>
               <input name="provider" type="hidden" value="openai" />
