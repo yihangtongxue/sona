@@ -4,7 +4,7 @@
 
 Sona 是一款桌面音频转录工具：在本机将音频转成文字，再按需使用你配置的 AI 模型整理成易读的文稿。
 
-[版本发布页](https://gitee.com/yihangtongxue/sona-releases/releases) · [问题反馈](https://github.com/yihangtongxue/sona/issues) · [作者主页](https://maxcosmos.top)
+[版本发布页](https://cnb.cool/yihangtongxue/sona-release/-/releases) · [问题反馈](https://github.com/yihangtongxue/sona/issues) · [作者主页](https://maxcosmos.top)
 
 ## 功能
 

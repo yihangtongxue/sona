@@ -8,6 +8,7 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_sub
 root = Path(SPECPATH).resolve().parents[1]
 stage = Path(os.environ["SONA_BUILD_STAGE"])
 version = os.environ["SONA_BUILD_VERSION"]
+bundle_id = os.environ["SONA_BUILD_BUNDLE_ID"]
 minimum = "26.0"  # Current locked mlx-metal wheel targets macOS 26.
 
 datas = [(str(root / "src/sona/web"), "sona/web"),
@@ -38,9 +39,11 @@ exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Sona", console=False,
           codesign_identity=None)
 collection = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="Sona")
 app = BUNDLE(collection, name="Sona.app", icon=str(root / "assets/Sona.icns"),
-             bundle_identifier="com.yihangtongxue.sona", version=version,
+             bundle_identifier=bundle_id, version=version,
              info_plist={"CFBundleName": "Sona", "CFBundleDisplayName": "Sona",
                          "CFBundleVersion": version, "CFBundleShortVersionString": version,
+                         "SonaUpdateManifestURL": os.environ["SONA_UPDATE_MANIFEST_URL"],
+                         "SonaReleaseRepository": os.environ["SONA_RELEASE_REPOSITORY"],
                          "LSMinimumSystemVersion": minimum,
                          "NSHighResolutionCapable": True,
                          "NSSpeechRecognitionUsageDescription": "用于将你选择的音频转录为文字。",

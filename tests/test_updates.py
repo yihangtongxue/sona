@@ -13,6 +13,8 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError
+from urllib.request import Request
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -20,7 +22,8 @@ from sona.activity import ActivityGate
 from sona.database import ModelRepository
 from sona.paths import AppPaths
 from sona.updates.macos import extract_app, installed_bundle, signing_requirement, validate_app
-from sona.updates.protocol import Release, UpdateError, download, fetch_manifest, parse_manifest, public_url, version_tuple
+from sona.updates.protocol import (Release, SafeRedirect, UpdateError, download, fetch_manifest,
+                                   open_public, parse_manifest, public_url, version_tuple)
 from sona.updates.service import UpdateService
 from sona.updates.signatures import SignatureError, artifact_payload, verify_signature, verify_archive
 from sona.version import BUNDLE_ID, UPDATE_MANIFEST_URL, VERSION
@@ -42,7 +45,7 @@ def manifest(version="1.1.0"):
     result = {"schemaVersion": 1, "channel": "stable", "version": version, "tag": f"v{version}", "notes": "更新说明",
             "assets": [{"fileName": "Sona.zip", "platform": "macos", "architecture": "arm64", "packageType": "zip",
                         "size": 3, "sha256": hashlib.sha256(b"abc").hexdigest(),
-                        "downloadUrl": "https://gitee.com/example/releases/download/v1.1.0/Sona.zip"}]}
+                        "downloadUrl": "https://cnb.cool/example/releases/-/releases/download/v1.1.0/remote-asset.zip"}]}
     sign_asset(version, result["assets"][0])
     return result
 
@@ -55,8 +58,9 @@ class ProtocolTests(unittest.TestCase):
 
     def test_identity_and_numeric_version_order(self):
         self.assertEqual(VERSION, "1.0.0")
-        self.assertIn("sona-releases", UPDATE_MANIFEST_URL)
-        self.assertTrue(UPDATE_MANIFEST_URL.endswith("?ref=main"))
+        self.assertEqual(BUNDLE_ID, "com.yihang.sona")
+        self.assertEqual(UPDATE_MANIFEST_URL,
+            "https://cnb.cool/yihangtongxue/sona-release/-/git/raw/main/.release-hub/updates/stable.json")
         self.assertGreater(version_tuple("1.10.0"), version_tuple("1.9.0"))
         for value in ("v1.0.0", "1.0", "01.0.0", "1.0.0-beta", "1.0.0\n", None):
             with self.subTest(value=value), self.assertRaises(UpdateError):
@@ -94,7 +98,9 @@ class ProtocolTests(unittest.TestCase):
             with self.assertRaises(UpdateError):
                 public_url("https://example.com/app", resolve=True)
 
-    def test_contents_decoding_and_unpublished_gitee_response(self):
+    def test_cnb_raw_manifest_and_legacy_contents_envelope(self):
+        with patch("sona.updates.protocol.open_public", return_value=io.BytesIO(json.dumps(manifest()).encode())):
+            self.assertEqual(fetch_manifest(), manifest())
         envelope = {"content": base64.b64encode(json.dumps(manifest()).encode()).decode()}
         with patch("sona.updates.protocol.open_public", return_value=io.BytesIO(json.dumps(envelope).encode())):
             self.assertEqual(fetch_manifest(), manifest())
@@ -103,6 +109,48 @@ class ProtocolTests(unittest.TestCase):
         with patch("sona.updates.protocol.open_public", return_value=io.BytesIO(b'{}')):
             with self.assertRaises(UpdateError):
                 fetch_manifest()
+
+    def test_cnb_missing_manifest_and_authentication_error_are_distinct(self):
+        with patch("sona.updates.protocol.open_public", side_effect=HTTPError(UPDATE_MANIFEST_URL, 404, "missing", {}, None)):
+            self.assertIsNone(fetch_manifest())
+        with patch("sona.updates.protocol.open_public", side_effect=HTTPError(UPDATE_MANIFEST_URL, 401, "auth", {}, None)):
+            with self.assertRaisesRegex(UpdateError, "无需登录"):
+                fetch_manifest()
+        with patch("sona.updates.protocol.open_public", return_value=io.BytesIO(b"<html>login</html>")):
+            with self.assertRaises(UpdateError):
+                fetch_manifest()
+
+    def test_public_requests_never_attach_authorization(self):
+        opener = Mock()
+        with patch("sona.updates.protocol.public_url"), patch("sona.updates.protocol.build_opener", return_value=opener):
+            open_public(UPDATE_MANIFEST_URL)
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.full_url, UPDATE_MANIFEST_URL)
+        self.assertFalse(request.has_header("Authorization"))
+        self.assertFalse(request.has_header("Cookie"))
+
+    def test_cnb_object_storage_redirect_is_revalidated(self):
+        request = Request(manifest()["assets"][0]["downloadUrl"])
+        target = "https://example.cos.ap-shanghai.myqcloud.com/asset.zip?q-signature=example"
+        with patch("sona.updates.protocol.socket.getaddrinfo", return_value=[(0, 0, 0, "", ("1.1.1.1", 443))]):
+            redirected = SafeRedirect().redirect_request(request, None, 302, "Found", {}, target)
+            self.assertEqual(redirected.full_url, target)
+            self.assertFalse(redirected.has_header("Authorization"))
+        with self.assertRaises(UpdateError):
+            SafeRedirect().redirect_request(request, None, 302, "Found", {}, "http://example.com/asset.zip")
+        with patch("sona.updates.protocol.socket.getaddrinfo", return_value=[(0, 0, 0, "", ("127.0.0.1", 443))]):
+            with self.assertRaises(UpdateError):
+                SafeRedirect().redirect_request(request, None, 302, "Found", {}, target)
+
+    def test_signed_app_id_from_previous_build_is_rejected(self):
+        data = manifest()
+        payload = artifact_payload(data["version"], data["assets"][0])
+        payload["appId"] = "com.yihangtongxue.sona"
+        raw = json.dumps(payload).encode()
+        signature = data["assets"][0]["updateSignature"]
+        signature.update(payload=base64.b64encode(raw).decode(), signature=base64.b64encode(TEST_KEY.sign(raw)).decode())
+        with self.assertRaisesRegex(UpdateError, "不匹配"):
+            parse_manifest(data)
 
     def test_proxy_dns_is_allowed_only_for_hostnames(self):
         for address in ("198.18.0.129", "198.19.255.254"):

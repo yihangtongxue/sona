@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from sona.updates.signatures import read_public_key
-from sona.version import BUNDLE_ID, VERSION
+from sona.version import BUNDLE_ID, RELEASE_REPOSITORY, UPDATE_MANIFEST_URL, VERSION
 
 
 def run(arguments, **kwargs):
@@ -63,10 +63,19 @@ def main():
          ROOT / "src/sona/native/speech_asset_manager.swift", "-o", helper,
          "-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", helper_info])
     env = {**os.environ, "SONA_BUILD_STAGE": str(stage), "SONA_BUILD_VERSION": VERSION,
+           "SONA_BUILD_BUNDLE_ID": BUNDLE_ID, "SONA_UPDATE_MANIFEST_URL": UPDATE_MANIFEST_URL,
+           "SONA_RELEASE_REPOSITORY": RELEASE_REPOSITORY,
            "MACOSX_DEPLOYMENT_TARGET": "26.0", "LITELLM_LOCAL_MODEL_COST_MAP": "True"}
     run([sys.executable, "-m", "PyInstaller", ROOT / "packaging/macos/Sona.spec",
          "--distpath", stage / "dist", "--workpath", stage / "work"], env=env, cwd=ROOT)
     app = stage / "dist/Sona.app"
+    with (app / "Contents/Info.plist").open("rb") as stream:
+        info = plistlib.load(stream)
+    if (info.get("CFBundleIdentifier") != BUNDLE_ID or info.get("CFBundleVersion") != VERSION
+            or info.get("CFBundleShortVersionString") != VERSION
+            or info.get("SonaUpdateManifestURL") != UPDATE_MANIFEST_URL
+            or info.get("SonaReleaseRepository") != RELEASE_REPOSITORY):
+        raise ValueError("打包后的应用标识、版本或更新地址不一致，已停止生成发布包。")
     # Ad-hoc seal, NOT Developer ID or Apple notarization. The signed ZIP provides
     # publisher authentication. Do not touch Gatekeeper/quarantine settings.
     run(["/usr/bin/codesign", "--force", "--deep", "--sign", "-", "--identifier", BUNDLE_ID, app])
@@ -81,7 +90,8 @@ def main():
     (image_root / "Applications").symlink_to("/Applications")
     run(["/usr/bin/hdiutil", "create", "-volname", "Sona", "-srcfolder", image_root,
          "-format", "UDZO", destination / f"Sona-{VERSION}-macos-arm64.dmg"])
-    (destination / "build-info.json").write_text(json.dumps({"version": VERSION, "minimumMacOS": "26.0",
+    (destination / "build-info.json").write_text(json.dumps({"version": VERSION, "appId": BUNDLE_ID,
+        "releaseRepository": RELEASE_REPOSITORY, "updateManifestURL": UPDATE_MANIFEST_URL, "minimumMacOS": "26.0",
         "architecture": "arm64", "keyId": public_record["keyId"], "signing": "ad-hoc",
         "notarized": False, "python": platform.python_version()}, indent=2))
     print(f"打包产物：{destination}\n尚未生成发布签名或发布，请先验收，再运行 release_keys.py sign。")

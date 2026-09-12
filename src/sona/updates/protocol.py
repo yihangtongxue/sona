@@ -150,16 +150,24 @@ def fetch_manifest():
         if len(raw) > MAX_MANIFEST_BYTES:
             raise UpdateError("更新清单过大。")
         envelope = json.loads(raw)
-        # Gitee can return an empty list for an unpublished path.
+        # CNB's public raw endpoint returns the manifest itself, without auth.
+        # Its management Contents API requires a publisher token and must not
+        # be used by installed clients. Keep envelope decoding for compatibility.
+        if isinstance(envelope, dict) and "schemaVersion" in envelope:
+            return envelope
         if envelope == []:
             return None
         if not isinstance(envelope, dict) or not isinstance(envelope.get("content"), str):
             raise UpdateError("未读取到有效的更新清单。")
+        if envelope.get("encoding", "base64") != "base64":
+            raise UpdateError("更新清单编码无效。")
         content = base64.b64decode("".join(envelope["content"].split()), validate=True)
         return json.loads(content)
     except HTTPError as error:
         if error.code == 404:
             return None
+        if error.code == 401:
+            raise UpdateError("更新源暂不允许公开访问，请联系作者；无需登录或填写令牌。") from None
         if error.code in (403, 429):
             raise UpdateError("检查更新被限流或拒绝，请稍后重试。") from None
         raise UpdateError("版本服务器暂时不可用，请稍后重试。") from None

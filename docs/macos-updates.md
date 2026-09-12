@@ -1,13 +1,13 @@
 # Mac 免费分发、打包与更新
 
-本文面向发布维护者，普通用户无需执行以下命令。1.0.0 的本地 DMG、ZIP 及签名文件已生成；后续源码改动不自动进入这些产物。正式发布前必须重新确认产物对应的代码及 [验收清单](acceptance.md)，不能将打包成功视为真实升级已通过。
+本文面向发布维护者，普通用户无需执行以下命令。源码改动不自动进入已有安装包；重新构建后必须重新生成签名。正式发布前必须确认产物对应的代码及 [验收清单](acceptance.md)，不能将打包成功视为真实升级已通过。
 
 ## 发行配置
 
 - Sona 1.0.0；作者：一航同学YIHANG；主页 https://maxcosmos.top；邮箱 leo.morrison.2001@gmail.com。
-- Bundle ID：`com.yihangtongxue.sona`，后续保持不变。
-- 发布仓库：`https://gitee.com/yihangtongxue/sona-releases`，固定 `main`。
-- 清单：`.release-hub/updates/stable.json`，匿名 Gitee Contents API，`schemaVersion: 1 / stable`。
+- Bundle ID：`com.yihang.sona`，后续保持不变；主应用、Speech 辅助程序、签名载荷和安装检查统一从发行配置派生。
+- 发布仓库：`https://cnb.cool/yihangtongxue/sona-release`，固定 `main`。
+- 清单：`https://cnb.cool/yihangtongxue/sona-release/-/git/raw/main/.release-hub/updates/stable.json`，直接读取 JSON，`schemaVersion: 1 / stable`。CNB 管理 API 需要认证，客户端不用它，也不携带发布 Token。
 - 当前构建：Apple 芯片、macOS 26+。锁定的 mlx-metal 0.32.2 wheel 标记为 macOS 26；不能仅降低 Info.plist 就承诺旧系统支持。
 - 首次安装 DMG，更新使用完整 ZIP（顶层只有 `Sona.app`）。模型权重不进包。
 - 不购买 Apple Developer 会员、不公证；采用 ad-hoc 应用签名和独立 Ed25519 更新签名。
@@ -59,11 +59,15 @@ uv run python scripts/release_keys.py sign --private-key /Users/leo/os/signing/s
 
 ### 4. ReleaseHub 发布
 
-在 ReleaseHub 的 Sona 产品中设置「更新包签名：必须签名」「应用标识：com.yihangtongxue.sona」。选择 ZIP（macos / arm64 / zip）和 DMG（macos / arm64 / dmg）。两份 `.sig.json` 留在各安装包旁，不作为安装包选择。
+在 ReleaseHub 的 CNB 产品中设置目标公开仓库及 `main` 分支、「更新包签名：必须签名」「应用标识：com.yihang.sona」。选择 ZIP（macos / arm64 / zip）和 DMG（macos / arm64 / dmg）。两份 `.sig.json` 留在各安装包旁，不作为安装包选择。
 
 ReleaseHub 按产品配置校验签名，不应依赖 Sona 仓库名的特殊分支。在任何远端写入前读取 sidecar、验证签名及元数据，全部附件上传成功后才写 stable.json。签名经 `assets[].updateSignature` 透传。必须签名的产品缺 sidecar 会中止发布。ReleaseHub 不保管私钥，sidecar 公钥只用于一致性校验；真正信任锚是 Sona 内置公钥。发布时务必使用原密钥，避免服务端验证通过但旧客户端不信任新密钥。
 
 发布 Token 只由 ReleaseHub 管理，不进入 Sona。失败需先核对远端 Release/tag，不能直接重复上传相同版本。“校验客户端下载”检查匿名下载和哈希，不等于真实升级验收。
+
+CNB 附件使用 `https://cnb.cool/<组织>/<仓库>/-/releases/download/<tag>/<远端附件名>` 的公开稳定入口，允许经过安全校验后重定向到对象存储；不要保存临时签名地址或使用有次数限制的分享链接。远端附件名可以与清单 `fileName` 不同，签名仍验证原文件名与内容哈希。
+
+本次更换更新源及 Bundle ID 后重建 1.0.0：旧包需要手动替换，不能通过相同版本号或跨标识自动升级。旧包和旧 `.sig.json` 不用于新 CNB 发布；确认新包构建成功后，可以清理旧构建产物，但不要删除签名密钥或用户数据。沿用现有 Ed25519 密钥，但必须对新包重新签名。数据仍保存在原 Sona 数据目录，钥匙串服务名称不变；系统可能重新请求访问许可，不自动删除或迁移用户数据。
 
 ## 签名协议
 
