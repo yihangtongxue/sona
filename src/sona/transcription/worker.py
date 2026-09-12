@@ -9,10 +9,12 @@ import threading
 import time
 import signal
 import sys
+from contextlib import closing
 from pathlib import Path
 
 from ..file_lock import FileLocked, exclusive_file_lock
 from ..logging_config import configure_logging
+from .chunks import audio_chunks, ChunkResults
 
 
 logger = logging.getLogger(__name__)
@@ -29,26 +31,7 @@ def _watch_parent(native=False):
         time.sleep(1)
 
 
-def _decode(path):
-    import av
-    import numpy as np
-
-    blocks = []
-    resampler = av.AudioResampler(format='flt', layout='mono', rate=16000)
-    with av.open(str(path)) as container:
-        if not container.streams.audio:
-            raise ValueError("文件中没有可识别的音轨。")
-        for frame in container.decode(audio=0):
-            for converted in resampler.resample(frame):
-                blocks.append(converted.to_ndarray().reshape(-1))
-        for converted in resampler.resample(None):
-            blocks.append(converted.to_ndarray().reshape(-1))
-    if not blocks:
-        raise ValueError("音频解码后为空。")
-    return np.concatenate(blocks).astype(np.float32, copy=False)
-
-
-def _faster(audio, model_path, emit, force_cpu, device_index=0):
+def _faster(audio, model_path, emit, force_cpu, device_index=0, *, model_cache=None):
     logger.info('加载识别依赖 engine=faster-whisper')
     try:
         import ctranslate2
@@ -84,10 +67,15 @@ def _faster(audio, model_path, emit, force_cpu, device_index=0):
         emit({'kind': 'progress', 'detail': '正在加载模型。', 'device': label})
         logger.info('加载模型 device=%s compute=%s model_path=%s', device, compute, model_path)
         load_started = time.monotonic()
-        model = WhisperModel(str(model_path), device=device, compute_type=compute,
-                             device_index=device_index if device == 'cuda' else 0,
-                             cpu_threads=max(1, min(8, (os.cpu_count() or 2) // 2)),
-                             num_workers=1, local_files_only=True)
+        cache_key = (str(model_path), device, compute, device_index)
+        model = model_cache.get(cache_key) if model_cache is not None else None
+        if model is None:
+            model = WhisperModel(str(model_path), device=device, compute_type=compute,
+                                 device_index=device_index if device == 'cuda' else 0,
+                                 cpu_threads=max(1, min(8, (os.cpu_count() or 2) // 2)),
+                                 num_workers=1, local_files_only=True)
+            if model_cache is not None:
+                model_cache[cache_key] = model
         logger.info('模型加载完成 elapsed=%.2fs', time.monotonic() - load_started)
         emit({'kind': 'progress', 'detail': '正在转录。', 'device': label})
         infer_started = time.monotonic()
@@ -184,14 +172,8 @@ def run_worker(send, audio_path, model_path, lock_path, engine, force_cpu=False,
                 send.send({'kind': 'unavailable'})
                 return
             send.send({'kind': 'progress', 'detail': '正在读取音频。'})
-            decode_started = time.monotonic()
-            logger.info('开始解码音频 suffix=%s', Path(audio_path).suffix)
-            audio = _decode(Path(audio_path))
-            logger.info('音频解码完成 duration=%.2fs samples=%d elapsed=%.2fs',
-                        len(audio) / 16000, len(audio), time.monotonic() - decode_started)
-            result = (_mlx(audio, Path(model_path), send.send) if engine == 'mlx-whisper'
-                      else _faster(audio, Path(model_path), send.send, force_cpu,
-                                   runtime['device_index'] if runtime else 0))
+            result = _transcribe_chunks(Path(audio_path), Path(model_path), engine, send.send,
+                                        force_cpu, runtime['device_index'] if runtime else 0)
             if result is not None:
                 send.send({'kind': 'result', 'result': result})
                 logger.info('转录结果已发送给主进程')
@@ -209,3 +191,23 @@ def run_worker(send, audio_path, model_path, lock_path, engine, force_cpu=False,
     finally:
         logger.info('识别进程结束 elapsed=%.2fs', time.monotonic() - started)
         send.close()
+
+
+def _transcribe_chunks(audio_path, model_path, engine, emit, force_cpu=False, device_index=0):
+    merged = ChunkResults()
+    # Cache lives only for this recording. GPU fallback still starts a fresh
+    # worker and reruns the full recording, never mixing partial GPU/CPU results.
+    model_cache = {}
+    with closing(audio_chunks(audio_path, emit)) as chunks:
+        for index, audio in enumerate(chunks, 1):
+            started = time.monotonic()
+            report = merged.progress(emit, index)
+            result = (_mlx(audio, model_path, report) if engine == 'mlx-whisper'
+                      else _faster(audio, model_path, report, force_cpu, device_index,
+                                   model_cache=model_cache))
+            if result is None:
+                return None
+            merged.append(result, len(audio))
+            logger.info('音频分段完成 index=%d samples=%d elapsed=%.2fs',
+                        index, len(audio), time.monotonic() - started)
+    return merged.result()

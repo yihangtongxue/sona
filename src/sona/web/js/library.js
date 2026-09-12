@@ -35,6 +35,13 @@ let currentResult = null;
 let resultRequest = 0;
 let detailRecordId = null;
 let creatingManuscript = false;
+let transcriptRenderTimer;
+const TRANSCRIPT_BATCH_SIZE = 200;
+
+function stopTranscriptRender() {
+  clearTimeout(transcriptRenderTimer);
+  transcriptContent.removeAttribute("aria-busy");
+}
 
 function taskPresentation(record) {
   const detail = String(record.transcription_detail ?? "").trim();
@@ -275,7 +282,9 @@ function timestamp(value) {
 }
 
 function showResult(result) {
+  stopTranscriptRender();
   currentResult = result;
+  const token = resultRequest;
   clearTimeout(timer);
   tableRegion.hidden = true;
   transcript.hidden = false;
@@ -286,23 +295,35 @@ function showResult(result) {
   if (!result.segments.length) {
     transcriptContent.textContent = result.text || "未识别到语音。";
   } else {
-    const fragment = document.createDocumentFragment();
-    for (const segment of result.segments) {
-      const row = document.createElement("p");
-      const time = document.createElement("span");
-      time.className = "transcript-time";
-      time.textContent = timestamp(segment.start);
-      const text = document.createElement("span");
-      text.textContent = segment.text.trim();
-      row.append(time, text);
-      fragment.append(row);
+    let offset = 0;
+    transcriptContent.setAttribute("aria-busy", "true");
+    function appendBatch() {
+      if (token !== resultRequest || currentResult !== result || panel.hidden) return;
+      const fragment = document.createDocumentFragment();
+      const end = Math.min(offset + TRANSCRIPT_BATCH_SIZE, result.segments.length);
+      for (; offset < end; offset += 1) {
+        const segment = result.segments[offset];
+        const row = document.createElement("p");
+        const time = document.createElement("span");
+        time.className = "transcript-time";
+        time.textContent = timestamp(segment.start);
+        const text = document.createElement("span");
+        text.textContent = segment.text.trim();
+        row.append(time, text);
+        fragment.append(row);
+      }
+      transcriptContent.append(fragment);
+      // Yield between batches so a long transcript does not block navigation.
+      if (offset < result.segments.length) transcriptRenderTimer = setTimeout(appendBatch, 16);
+      else transcriptContent.removeAttribute("aria-busy");
     }
-    transcriptContent.append(fragment);
+    appendBatch();
   }
   transcriptTitle.focus();
 }
 
 export function openAudioLibrary() {
+  stopTranscriptRender();
   resultRequest += 1;
   currentResult = null;
   transcript.hidden = true;
@@ -352,6 +373,7 @@ retry.addEventListener("click", loadLibrary);
 window.addEventListener("pywebviewready", () => { if (!panel.hidden) loadLibrary(); });
 window.addEventListener("audio-library-changed", () => { if (!panel.hidden) loadLibrary(); });
 window.addEventListener("view-changed", () => {
+  stopTranscriptRender();
   resultRequest += 1;
   schedule();
 });

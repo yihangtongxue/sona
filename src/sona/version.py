@@ -1,6 +1,6 @@
 """Release identity; keep VERSION in sync with pyproject.toml and the app plist."""
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 BUNDLE_ID = "com.yihang.sona"
 RELEASE_REPOSITORY = "https://cnb.cool/yihangtongxue/sona-release"
 UPDATE_MANIFEST_URL = (

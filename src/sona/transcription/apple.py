@@ -11,46 +11,14 @@ import tempfile
 import threading
 import time
 import wave
+from contextlib import closing
 
 from ..providers.apple_speech import _helper_command, _terminate
+from .chunks import audio_chunks, ChunkResults, SAMPLE_RATE
 
 
 logger = logging.getLogger(__name__)
 DEVICE = 'Apple Speech · 系统引擎'
-
-
-def _decode_to_wave(source, destination, emit):
-    """Stream all supported imports to PCM without holding the whole file in RAM."""
-    import av
-
-    samples = 0
-    last_progress = time.monotonic()
-    with av.open(str(source)) as container, wave.open(str(destination), 'wb') as output:
-        if not container.streams.audio:
-            raise ValueError('文件中没有可识别的音轨。')
-        output.setnchannels(1)
-        output.setsampwidth(2)
-        output.setframerate(16000)
-        resampler = av.AudioResampler(format='s16', layout='mono', rate=16000)
-
-        def write(frame):
-            nonlocal samples
-            # ndarray excludes alignment padding in an AV audio plane.
-            output.writeframesraw(frame.to_ndarray().astype('<i2', copy=False).tobytes())
-            samples += frame.samples
-
-        for frame in container.decode(audio=0):
-            for converted in resampler.resample(frame):
-                write(converted)
-            now = time.monotonic()
-            if now - last_progress >= 2:
-                emit({'kind': 'progress', 'detail': '正在读取音频。', 'device': DEVICE})
-                last_progress = now
-        for converted in resampler.resample(None):
-            write(converted)
-    if not samples:
-        raise ValueError('音频解码后为空。')
-    return samples / 16000
 
 
 def _number(value):
@@ -112,8 +80,25 @@ def transcribe(audio_path, work_dir, locale, emit):
         raise RuntimeError('无法启动原生语音工具，请安装 Xcode Command Line Tools 或配置 SONA_SPEECH_HELPER。')
     emit({'kind': 'progress', 'detail': '正在读取音频。', 'device': DEVICE})
     pcm_path = work_dir / 'input.wav'
-    duration = _decode_to_wave(audio_path, pcm_path, emit)
-    logger.info('Apple Speech 音频解码完成 duration=%.2fs locale=%s', duration, locale)
+    merged = ChunkResults()
+    # Reuse one bounded WAV; the supervisor owns its directory on cancellation.
+    with closing(audio_chunks(audio_path, emit, format='s16')) as chunks:
+        for index, audio in enumerate(chunks, 1):
+            report = merged.progress(emit, index)
+            try:
+                with wave.open(str(pcm_path), 'wb') as output:
+                    output.setnchannels(1)
+                    output.setsampwidth(2)
+                    output.setframerate(SAMPLE_RATE)
+                    output.writeframesraw(memoryview(audio).cast('B'))
+                result = _transcribe_wave(command, pcm_path, len(audio) / SAMPLE_RATE, locale, report)
+                merged.append(result, len(audio))
+            finally:
+                pcm_path.unlink(missing_ok=True)
+    return merged.result()
+
+
+def _transcribe_wave(command, pcm_path, duration, locale, emit):
     events = TranscriptEvents(duration, emit)
     timed_out = threading.Event()
     with tempfile.TemporaryFile(mode='w+b') as errors:

@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 from sona.ai_model_service import AIModelService, ModelTestError
 from sona.database import ModelRepository
 from sona.file_lock import exclusive_file_lock
+from sona.generation_budget import GenerationBudget, GenerationLimitError
 from sona.manuscripts import ManuscriptService, OPTIMIZE_PROMPT, split_transcript, title_material
 
 
@@ -24,6 +25,7 @@ class ManuscriptTests(unittest.TestCase):
                         "base_url": None, "api_key_ref": "reference-only", "config": {}}
         self.ai.default_generation_profile.return_value = self.profile
         self.ai.prepare_generation.return_value = object()
+        self.ai.generation_budget.return_value = GenerationBudget(32768, 16384)
         self.service = ManuscriptService(self.database, self.ai, start_worker=False)
         self.addCleanup(self.service.close)
         self.repo = self.service.repository
@@ -217,6 +219,7 @@ class GenerationSessionTests(unittest.TestCase):
     def fake_completion(self, **kwargs):
         module = ModuleType("litellm")
         module.completion = Mock(**kwargs)
+        module.model_cost = {'zai/glm-5.3-flash': {'max_input_tokens': 32768, 'max_output_tokens': 8192}}
         return module
 
     def test_default_must_be_explicitly_selected_and_ready(self):
@@ -266,7 +269,7 @@ class GenerationSessionTests(unittest.TestCase):
                          self.response(finish_reason="tool_calls"), SimpleNamespace(choices=[])):
             with self.subTest(response=response):
                 module = self.fake_completion(return_value=response)
-                with patch.dict("sys.modules", {"litellm": module}), self.assertRaises(ModelTestError):
+                with patch.dict("sys.modules", {"litellm": module}), self.assertRaises((ModelTestError, GenerationLimitError)):
                     self.ai.generate_text(session, "instruction", "payload")
 
     def test_provider_error_is_sanitized(self):

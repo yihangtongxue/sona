@@ -4,7 +4,7 @@
 
 ## 发行配置
 
-- Sona 1.0.0；作者：一航同学YIHANG；主页 https://maxcosmos.top；邮箱 leo.morrison.2001@gmail.com。
+- Sona 1.1.0；作者：一航同学YIHANG；主页 https://maxcosmos.top；邮箱 leo.morrison.2001@gmail.com。
 - Bundle ID：`com.yihang.sona`，后续保持不变；主应用、Speech 辅助程序、签名载荷和安装检查统一从发行配置派生。
 - 发布仓库：`https://cnb.cool/yihangtongxue/sona-release`，固定 `main`。
 - 清单：`https://cnb.cool/yihangtongxue/sona-release/-/git/raw/main/.release-hub/updates/stable.json`，直接读取 JSON，`schemaVersion: 1 / stable`。CNB 管理 API 需要认证，客户端不用它，也不携带发布 Token。
@@ -23,7 +23,7 @@
 
 ## 打包前确认
 
-首次执行前确认：1.0.0、Apple 芯片/macOS 26+、接受未公证的安装提示、专用私钥保管目录。当前已有发布密钥，统一保存在 `/Users/leo/os/signing/sona/`；继续使用已有密钥，不要重新生成。缺少公钥将停止构建。
+首次执行前确认：1.1.0、Apple 芯片/macOS 26+、接受未公证的安装提示、专用私钥保管目录。当前已有发布密钥，统一保存在 `/Users/leo/os/signing/sona/`；继续使用已有密钥，不要重新生成。缺少公钥将停止构建。
 
 以下命令供确认后手动执行；已有密钥时跳过生成步骤，已完成的构建或签名不要重复覆盖。
 
@@ -40,19 +40,19 @@ uv run python scripts/release_keys.py generate --directory /Users/leo/os/signing
 需要支持 macOS 26 Speech API 的 Xcode Command Line Tools、原生 arm64 Python 3.13 和锁定依赖：
 
 ```sh
-uv run --locked --with pyinstaller==6.22.2 python scripts/build_macos.py --public-key /Users/leo/os/signing/sona/update-public-key.json --confirm-version 1.0.0
+uv run --locked --with pyinstaller==6.22.2 python scripts/build_macos.py --public-key /Users/leo/os/signing/sona/update-public-key.json --confirm-version 1.1.0
 ```
 
 工具检查版本和公钥，预编译 Speech helper，按 `packaging/macos/Sona.spec` 收集 Python、MLX/Metal、LiteLLM、PyAV、keyring、网页与图标，生成 ad-hoc `.app`、ZIP、DMG 和构建信息。不读取私钥、不上传、不覆盖已有输出；诊断文件保留在 `build/macos-*`。失败输出需人工核对后另存，再重试。
 
 新版本先同步修改 `src/sona/version.py`、`pyproject.toml` 并更新 `uv.lock`，再替换命令中的版本号与产物路径。已发布版本不可覆盖；尚未发布的同版本重建也应先归档旧输出，不能复用旧签名。
 
-产物位于 `dist/Sona-1.0.0-macos-arm64/`。保留第三方许可文件，发布前仍需核对许可证；不要把 `.data`、用户 API Key、本机模型或整个虚拟环境塞进包。
+产物位于 `dist/Sona-1.1.0-macos-arm64/`。保留第三方许可文件，发布前仍需核对许可证；不要把 `.data`、用户 API Key、本机模型或整个虚拟环境塞进包。
 
 ### 3. 验收后签名
 
 ```sh
-uv run python scripts/release_keys.py sign --private-key /Users/leo/os/signing/sona/update-private.pem --public-key /Users/leo/os/signing/sona/update-public-key.json --confirm-version 1.0.0 dist/Sona-1.0.0-macos-arm64/Sona-1.0.0-macos-arm64.zip dist/Sona-1.0.0-macos-arm64/Sona-1.0.0-macos-arm64.dmg
+uv run python scripts/release_keys.py sign --private-key /Users/leo/os/signing/sona/update-private.pem --public-key /Users/leo/os/signing/sona/update-public-key.json --confirm-version 1.1.0 dist/Sona-1.1.0-macos-arm64/Sona-1.1.0-macos-arm64.zip dist/Sona-1.1.0-macos-arm64/Sona-1.1.0-macos-arm64.dmg
 ```
 
 工具验证密钥匹配、ZIP 内身份/版本/公钥，为各文件生成同名 `.sig.json`。DMG 由相同构建产生，仍需要人工验收；签名不是测试或安全审计。签名后不要修改或重新压缩安装包。
@@ -67,7 +67,7 @@ ReleaseHub 按产品配置校验签名，不应依赖 Sona 仓库名的特殊分
 
 CNB 附件使用 `https://cnb.cool/<组织>/<仓库>/-/releases/download/<tag>/<远端附件名>` 的公开稳定入口，允许经过安全校验后重定向到对象存储；不要保存临时签名地址或使用有次数限制的分享链接。远端附件名可以与清单 `fileName` 不同，签名仍验证原文件名与内容哈希。
 
-本次更换更新源及 Bundle ID 后重建 1.0.0：旧包需要手动替换，不能通过相同版本号或跨标识自动升级。旧包和旧 `.sig.json` 不用于新 CNB 发布；确认新包构建成功后，可以清理旧构建产物，但不要删除签名密钥或用户数据。沿用现有 Ed25519 密钥，但必须对新包重新签名。数据仍保存在原 Sona 数据目录，钥匙串服务名称不变；系统可能重新请求访问许可，不自动删除或迁移用户数据。
+历史迁移说明：更换更新源及 Bundle ID 时曾重建 1.0.0；迁移前旧包需要手动替换，不能通过相同版本号或跨标识自动升级。1.1.0 沿用迁移后的 `com.yihang.sona`、CNB 更新源及现有 Ed25519 密钥，必须对新包重新签名。数据仍保存在原 Sona 数据目录，钥匙串服务名称不变，不自动删除或迁移用户数据。
 
 ## 签名协议
 

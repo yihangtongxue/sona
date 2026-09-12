@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 from sona.models import BUILTIN_MODELS, ModelEvent
 from sona.providers.apple_speech import _parse_event
-from sona.transcription.apple import TranscriptEvents, transcribe
+from sona.transcription.apple import TranscriptEvents, _transcribe_wave
 from sona.transcription.service import TranscriptionService, _signal_native_group
 
 
@@ -71,12 +71,10 @@ class AppleProtocolTests(unittest.TestCase):
                 process = Mock(stdout=io.StringIO('\n'.join(json.dumps(item) for item in messages)))
                 process.wait.return_value = code
                 process.poll.return_value = code
-                with patch('sona.transcription.apple._helper_command', return_value=['helper']), \
-                     patch('sona.transcription.apple._decode_to_wave', return_value=3), \
-                     patch('sona.transcription.apple.subprocess.Popen', return_value=process), \
+                with patch('sona.transcription.apple.subprocess.Popen', return_value=process), \
                      patch('sona.transcription.apple.threading.Timer'), \
                      self.assertRaises(RuntimeError):
-                    transcribe(Path('audio.wav'), Path(directory), 'zh-CN', Mock())
+                    _transcribe_wave(['helper'], Path(directory) / 'input.wav', 3, 'zh-CN', Mock())
 
 
 class AppleRoutingTests(unittest.TestCase):

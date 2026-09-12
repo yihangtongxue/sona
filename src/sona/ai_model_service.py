@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .file_lock import FileLocked, exclusive_file_lock
+from .generation_budget import GenerationLimitError, model_budget
 
 
 logger = logging.getLogger(__name__)
@@ -349,12 +350,18 @@ class AIModelService:
         # only in memory so a later model switch cannot reroute this job.
         return AIGenerationSession(snapshot, secret)
 
-    def generate_text(self, session: AIGenerationSession, instruction: str, content: str) -> str:
+    def generation_budget(self, session: AIGenerationSession):
+        return model_budget(session.profile, self._litellm_model(session.profile),
+                            reasoning='extra_body' in self._test_options(session.profile))
+
+    def generate_text(self, session: AIGenerationSession, instruction: str, content: str,
+                      *, budget=None, output_hint=None) -> str:
         try:
             from litellm import completion
 
             options = self._test_options(session.profile)
-            options.update(max_tokens=8192 if "extra_body" in options else 4096, timeout=120)
+            budget = budget if budget is not None else self.generation_budget(session)
+            options.update(max_tokens=budget.output_limit(instruction, content, output_hint), timeout=120)
             response = completion(
                 model=self._litellm_model(session.profile),
                 api_base=self._api_base(session.profile), api_key=session.api_key,
@@ -369,11 +376,17 @@ class AIModelService:
             logger.info("AI 文本生成响应 model=%s finish_reason=%s text_chars=%d",
                         session.profile["id"], reason, len(text) if isinstance(text, str) else 0)
             if reason == "length":
-                raise ModelTestError("模型输出达到单次上限，文稿尚未完整生成，请换用支持更长输出的模型后重试。")
+                raise GenerationLimitError("模型输出达到单次上限，需要进一步分段。")
+            if reason == "model_context_window_exceeded":
+                raise GenerationLimitError("模型上下文不足，需要进一步分段。")
             if reason != "stop" or not isinstance(text, str) or not text.strip():
                 raise ModelTestError("模型未返回完整正文，请检查模型权限或稍后重试。")
             return text.strip()
+        except GenerationLimitError:
+            raise
         except Exception as error:
+            if any(cls.__name__ == 'ContextWindowExceededError' for cls in type(error).__mro__):
+                raise GenerationLimitError('模型上下文不足，需要进一步分段。') from None
             # Provider exceptions may contain the full request, URL and credentials.
             message = self._connection_error(error)
             if message == "暂时无法完成连接测试，请核对配置后重试。":

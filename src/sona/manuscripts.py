@@ -8,11 +8,13 @@ import re
 import sqlite3
 import threading
 import uuid
+from collections import deque
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from .ai_model_service import AIModelService, CredentialError, ModelTestError
 from .file_lock import FileLocked, exclusive_file_lock
+from .generation_budget import GenerationLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -78,24 +80,69 @@ TITLE_PROMPT = """根据提供的文稿内容生成一个简洁、准确的中�
 
 def split_transcript(text: str, limit: int = 1800) -> list[str]:
     """Bound requests even when ASR produced no punctuation; never discard text."""
+    if limit <= 0:
+        raise ValueError('文稿分段长度必须大于零。')
     chunks = []
-    while len(text) > limit:
-        window = text[:limit]
-        boundary = max(window.rfind(mark) + len(mark) for mark in ("\n\n", "\n", "。", "！", "？", ". ", "，", " "))
-        end = boundary if boundary >= limit // 2 else limit
-        chunks.append(text[:end])
-        text = text[end:]
-    if text:
-        chunks.append(text)
+    start = 0
+    while start < len(text):
+        end = _chunk_end(text, start, limit)
+        chunks.append(text[start:end])
+        start = end
     return chunks
 
 
-def title_material(body: str) -> str:
-    if len(body) <= 3600:
+def _chunk_end(text, start, limit):
+    end = min(start + limit, len(text))
+    if end < len(text):
+        window = text[start:end]
+        boundaries = [position + len(mark) for mark in ('\n\n', '\n', '。', '！', '？', '. ', '，', ' ')
+                      if (position := window.rfind(mark)) >= 0]
+        boundary = max(boundaries, default=0)
+        if boundary >= max(1, limit // 2):
+            end = start + boundary
+    return end
+
+
+def transcript_payload(text, context):
+    return json.dumps({'context': context, 'transcript': text}, ensure_ascii=False)
+
+
+def plan_transcript(text, budget):
+    """Check the full request and response budget before sending each chunk."""
+    start = 0
+    while start < len(text):
+        context = text[max(0, start - 200):start]
+
+        def fits(length):
+            chunk = text[start:start + length]
+            return budget.fits(OPTIMIZE_PROMPT, transcript_payload(chunk, context), chunk)
+
+        # Optional context must not prevent a small model from handling the text.
+        if not fits(1):
+            context = ''
+        if not fits(1):
+            raise ModelTestError('模型上下文或输出预算过小，无法容纳整理指令，请更换模型。')
+        low, high = 1, min(1800, len(text) - start)
+        while low < high:
+            middle = (low + high + 1) // 2
+            if fits(middle):
+                low = middle
+            else:
+                high = middle - 1
+        end = _chunk_end(text, start, low)
+        yield text[start:end], context, 0
+        start = end
+
+
+def title_material(body: str, limit: int = 3600) -> str:
+    if limit <= 0:
+        raise ValueError('标题素材长度必须大于零。')
+    if len(body) <= limit:
         return json.dumps({"text": body}, ensure_ascii=False)
     # Include beginning, middle and end rather than silently describing only the opening.
-    width = 600
-    starts = [i * (len(body) - width) // 5 for i in range(6)]
+    count = min(6, limit)
+    width = limit // count
+    starts = [i * (len(body) - width) // max(1, count - 1) for i in range(count)]
     return json.dumps({"excerpts": [body[start:start + width] for start in starts]}, ensure_ascii=False)
 
 
@@ -241,22 +288,33 @@ class ManuscriptService:
         try:
             self._check_stopping()
             session = self._ai_models.prepare_generation(json.loads(job["model_json"]))
+            budget = self._ai_models.generation_budget(session)
             body = job["body"]
             if not body:
-                chunks = split_transcript(job["source_text"])
+                chunks = deque(plan_transcript(job['source_text'], budget))
                 output = []
-                for index, chunk in enumerate(chunks):
+                while chunks:
                     self._check_stopping()
-                    detail = "正在优化" if len(chunks) == 1 else f"正在优化 {index + 1}/{len(chunks)}"
+                    chunk, context, depth = chunks.popleft()
+                    detail = f'正在优化 {len(output) + 1}/{len(output) + 1 + len(chunks)}'
                     self.repository.progress(identifier, detail)
-                    context = chunks[index - 1][-200:] if index else ""
-                    output.append(self._ai_models.generate_text(session, OPTIMIZE_PROMPT,
-                                  json.dumps({"context": context, "transcript": chunk}, ensure_ascii=False)))
+                    try:
+                        output.append(self._ai_models.generate_text(
+                            session, OPTIMIZE_PROMPT, transcript_payload(chunk, context),
+                            budget=budget, output_hint=chunk))
+                    except GenerationLimitError:
+                        # Discard truncated output. Only this uncompleted source
+                        # chunk is subdivided; earlier successful chunks stay put.
+                        if depth >= 5 or len(chunk) <= 80:
+                            raise ModelTestError('分段缩小后仍超过模型限制，请更换模型后重试。') from None
+                        parts = split_transcript(chunk, max(1, len(chunk) // 2))
+                        # Drop optional context on size retries to leave more room.
+                        chunks.extendleft(reversed([(part, '', depth + 1) for part in parts]))
                 body = "\n\n".join(output)
                 self.repository.progress(identifier, "正在生成标题", body=body)
             self._check_stopping()
             self.repository.progress(identifier, "正在生成标题")
-            title = self._ai_models.generate_text(session, TITLE_PROMPT, title_material(body))
+            title = self._generate_title(session, body, budget)
             title = re.sub(r"^[#\s]+", "", title).strip('“”"「」 ')
             if not title or len(title) > 40 or "\n" in title or "\r" in title:
                 raise ModelTestError("AI 未生成有效标题，请重试；已整理的正文会保留。")
@@ -268,6 +326,22 @@ class ManuscriptService:
             self.repository.fail(identifier, message)
             logger.warning("文稿优化未完成 manuscript=%s type=%s reason=%s",
                            identifier, type(error).__name__, message)
+
+    def _generate_title(self, session, body, budget):
+        limit = min(3600, len(body))
+        for _ in range(7):
+            self._check_stopping()
+            material = title_material(body, limit)
+            if budget.fits(TITLE_PROMPT, material, ''):
+                try:
+                    return self._ai_models.generate_text(session, TITLE_PROMPT, material,
+                                                         budget=budget, output_hint='')
+                except GenerationLimitError:
+                    pass
+            if limit <= 60:
+                break
+            limit = max(1, limit // 2)
+        raise ModelTestError('标题请求仍超过模型限制；已整理的正文会保留，请更换模型后重试。')
 
     def close(self):
         self._stop.set()
