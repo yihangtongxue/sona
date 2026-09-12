@@ -12,7 +12,22 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import github_release
+from release_support import check_release_context
 from test_updates import TEST_PUBLIC, sign_asset
+
+
+class ReleaseContextTests(unittest.TestCase):
+    def test_manual_publish_requires_explicit_request_and_matching_tag(self):
+        base = {"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "GITHUB_REF": f"refs/tags/v{github_release.VERSION}",
+                "GITHUB_REPOSITORY": github_release.REPOSITORY, "SONA_PUBLISH_RELEASE": "true"}
+        with patch.dict(os.environ, base, clear=True):
+            check_release_context()
+        for change in ({"SONA_PUBLISH_RELEASE": "false"}, {"GITHUB_REF": "refs/heads/main"},
+                       {"GITHUB_REPOSITORY": "example/fork"}, {"GITHUB_REF": "refs/tags/v99.0.0"}):
+            with self.subTest(change=change), patch.dict(os.environ, {**base, **change}, clear=True):
+                with self.assertRaises(ValueError):
+                    check_release_context()
 
 
 class ReleasePipelineTests(unittest.TestCase):

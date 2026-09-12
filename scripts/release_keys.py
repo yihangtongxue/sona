@@ -16,8 +16,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sona.updates.signatures import artifact_payload, read_public_key
-from sona.version import RELEASE_REPOSITORY, VERSION
-from release_support import PUBLIC_KEY, check_version
+from sona.version import VERSION
+from release_support import PUBLIC_KEY, check_release_context, check_version
 from release_assets import describe_asset
 
 
@@ -60,10 +60,7 @@ def sign(args):
     if len(set(artifacts)) != len(artifacts):
         raise ValueError("安装包路径重复。")
     if args.ci:
-        if (os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("GITHUB_EVENT_NAME") != "push"
-                or os.environ.get("GITHUB_REF") != f"refs/tags/v{VERSION}"
-                or os.environ.get("GITHUB_REPOSITORY") != RELEASE_REPOSITORY.removeprefix("https://github.com/")):
-            raise ValueError("CI 签名只允许在正式仓库的版本标签发布任务中执行。")
+        check_release_context()
         pem = os.environ.pop("SONA_UPDATE_PRIVATE_KEY_PEM", "").encode("utf-8")
         password = os.environ.pop("SONA_UPDATE_KEY_PASSWORD", "").encode("utf-8")
         if not pem or not password:

@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from urllib.parse import quote
 
-from release_support import PUBLIC_KEY, ROOT, check_version
+from release_support import PUBLIC_KEY, ROOT, check_release_context, check_version, release_requested
 from release_assets import describe_asset, expected_assets
 from sona.updates.protocol import parse_manifest, version_tuple
 from sona.updates.signatures import read_public_key, verify_signature
@@ -25,11 +25,8 @@ def gh(*arguments):
 def check():
     check_version(VERSION)
     read_public_key(PUBLIC_KEY)
-    if os.environ.get("GITHUB_EVENT_NAME") == "push":
-        if os.environ.get("GITHUB_REF") != f"refs/tags/v{VERSION}":
-            raise ValueError("推送标签必须与代码版本一致，例如 v1.0.0。")
-        if os.environ.get("GITHUB_REPOSITORY") != REPOSITORY:
-            raise ValueError("发布仓库与客户端固定更新源不一致。")
+    if release_requested():
+        check_release_context()
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with Path(output).open("a", encoding="utf-8") as stream:
@@ -70,8 +67,7 @@ def prepare(directory):
 
 def publish(directory):
     check()
-    if os.environ.get("GITHUB_EVENT_NAME") != "push" or os.environ.get("GITHUB_ACTIONS") != "true":
-        raise ValueError("自动发布只能由 GitHub Actions 的正式版本标签触发。")
+    check_release_context()
     # A later rerun or out-of-order tag must never change the latest release backwards.
     pages = json.loads(gh("api", "--paginate", "--slurp", f"repos/{REPOSITORY}/releases?per_page=100"))
     existing = None

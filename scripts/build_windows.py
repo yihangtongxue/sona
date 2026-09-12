@@ -35,9 +35,14 @@ def main():
     # The installer executes this file on machines missing WebView2. Authenticate
     # Microsoft's bootstrapper again here, including for manually invoked builds.
     env = {**os.environ, "SONA_WEBVIEW_BOOTSTRAPPER": str(args.webview_bootstrapper.resolve())}
-    run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+    # GitHub's parent shell is PowerShell 7. Starting Windows PowerShell 5 via
+    # Python inherits PS7 module paths, which prevents its Security module loading.
+    powershell = shutil.which("pwsh") or "powershell.exe"
+    signature_env = {key: value for key, value in env.items() if key.upper() != "PSMODULEPATH"}
+    run([powershell, "-NoProfile", "-NonInteractive", "-Command",
+         "$ErrorActionPreference = 'Stop'; "
          "$signature = Get-AuthenticodeSignature -LiteralPath $env:SONA_WEBVIEW_BOOTSTRAPPER; "
-         "if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation(,|$)') { exit 1 }"], env=env)
+         "if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation(,|$)') { exit 1 }"], env=signature_env)
     destination = ROOT / "dist" / f"Sona-{VERSION}-windows-x64"
     if destination.exists():
         raise ValueError(f"输出目录已存在，不覆盖已有产物：{destination}")

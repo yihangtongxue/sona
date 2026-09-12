@@ -2,6 +2,7 @@
 
 import importlib.metadata
 import json
+import os
 import sys
 import tomllib
 from pathlib import Path
@@ -11,10 +12,22 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from sona.updates.protocol import version_tuple
 from sona.updates.signatures import read_public_key
-from sona.version import VERSION
+from sona.version import RELEASE_REPOSITORY, VERSION
 
 PUBLIC_KEY = ROOT / "src/sona/updates/update-public-key.json"
 PYINSTALLER_VERSION = "6.22.2"
+
+
+def release_requested():
+    event = os.environ.get("GITHUB_EVENT_NAME")
+    return event == "push" or (event == "workflow_dispatch" and os.environ.get("SONA_PUBLISH_RELEASE") == "true")
+
+
+def check_release_context():
+    if (os.environ.get("GITHUB_ACTIONS") != "true" or not release_requested()
+            or os.environ.get("GITHUB_REF") != f"refs/tags/v{VERSION}"
+            or os.environ.get("GITHUB_REPOSITORY") != RELEASE_REPOSITORY.removeprefix("https://github.com/")):
+        raise ValueError("签名发布只允许在正式仓库的对应版本标签下执行。")
 
 
 def check_version(version):
