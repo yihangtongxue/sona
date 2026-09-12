@@ -89,6 +89,8 @@ def _run_app(paths) -> None:
         # pywebview's Windows backend requires an .ico file; passing the macOS
         # .icns asset makes System.Drawing fail before the window is shown.
         start_options: dict[str, object] = {"http_server": True}
+        if sys.platform == "win32":
+            start_options["gui"] = "edgechromium"
         if sys.platform == "darwin" and icon_path.is_file():
             start_options["icon"] = str(icon_path)
         webview.start(**start_options)

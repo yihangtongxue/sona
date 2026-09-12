@@ -45,7 +45,7 @@ def manifest(version="1.1.0"):
     result = {"schemaVersion": 1, "channel": "stable", "version": version, "tag": f"v{version}", "notes": "更新说明",
             "assets": [{"fileName": "Sona.zip", "platform": "macos", "architecture": "arm64", "packageType": "zip",
                         "size": 3, "sha256": hashlib.sha256(b"abc").hexdigest(),
-                        "downloadUrl": "https://cnb.cool/example/releases/-/releases/download/v1.1.0/remote-asset.zip"}]}
+                        "downloadUrl": "https://github.com/example/sona/releases/download/v1.1.0/Sona.zip"}]}
     sign_asset(version, result["assets"][0])
     return result
 
@@ -60,7 +60,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(VERSION, "1.0.0")
         self.assertEqual(BUNDLE_ID, "com.yihang.sona")
         self.assertEqual(UPDATE_MANIFEST_URL,
-            "https://cnb.cool/yihangtongxue/sona-release/-/git/raw/main/.release-hub/updates/stable.json")
+            "https://github.com/yihangtongxue/sona/releases/latest/download/stable.json")
         self.assertGreater(version_tuple("1.10.0"), version_tuple("1.9.0"))
         for value in ("v1.0.0", "1.0", "01.0.0", "1.0.0-beta", "1.0.0\n", None):
             with self.subTest(value=value), self.assertRaises(UpdateError):
@@ -98,19 +98,21 @@ class ProtocolTests(unittest.TestCase):
             with self.assertRaises(UpdateError):
                 public_url("https://example.com/app", resolve=True)
 
-    def test_cnb_raw_manifest_and_legacy_contents_envelope(self):
+    def test_github_manifest_is_plain_json(self):
         with patch("sona.updates.protocol.open_public", return_value=io.BytesIO(json.dumps(manifest()).encode())):
             self.assertEqual(fetch_manifest(), manifest())
         envelope = {"content": base64.b64encode(json.dumps(manifest()).encode()).decode()}
         with patch("sona.updates.protocol.open_public", return_value=io.BytesIO(json.dumps(envelope).encode())):
-            self.assertEqual(fetch_manifest(), manifest())
+            with self.assertRaises(UpdateError):
+                fetch_manifest()
         with patch("sona.updates.protocol.open_public", return_value=io.BytesIO(b"[]")):
-            self.assertIsNone(fetch_manifest())
+            with self.assertRaises(UpdateError):
+                fetch_manifest()
         with patch("sona.updates.protocol.open_public", return_value=io.BytesIO(b'{}')):
             with self.assertRaises(UpdateError):
                 fetch_manifest()
 
-    def test_cnb_missing_manifest_and_authentication_error_are_distinct(self):
+    def test_github_missing_manifest_and_authentication_error_are_distinct(self):
         with patch("sona.updates.protocol.open_public", side_effect=HTTPError(UPDATE_MANIFEST_URL, 404, "missing", {}, None)):
             self.assertIsNone(fetch_manifest())
         with patch("sona.updates.protocol.open_public", side_effect=HTTPError(UPDATE_MANIFEST_URL, 401, "auth", {}, None)):
@@ -129,9 +131,9 @@ class ProtocolTests(unittest.TestCase):
         self.assertFalse(request.has_header("Authorization"))
         self.assertFalse(request.has_header("Cookie"))
 
-    def test_cnb_object_storage_redirect_is_revalidated(self):
+    def test_github_asset_redirect_is_revalidated(self):
         request = Request(manifest()["assets"][0]["downloadUrl"])
-        target = "https://example.cos.ap-shanghai.myqcloud.com/asset.zip?q-signature=example"
+        target = "https://release-assets.githubusercontent.com/github-production-release-asset/example?signature=example"
         with patch("sona.updates.protocol.socket.getaddrinfo", return_value=[(0, 0, 0, "", ("1.1.1.1", 443))]):
             redirected = SafeRedirect().redirect_request(request, None, 302, "Found", {}, target)
             self.assertEqual(redirected.full_url, target)
@@ -304,6 +306,9 @@ class ArchiveTests(unittest.TestCase):
 
 class UpdateStateTests(unittest.TestCase):
     def setUp(self):
+        mocked_target = patch("sona.updates.service.current_target", return_value=("macos", "arm64"))
+        mocked_target.start()
+        self.addCleanup(mocked_target.stop)
         mocked_key = patch("sona.updates.signatures.read_public_key", return_value=TEST_PUBLIC)
         mocked_key.start()
         self.addCleanup(mocked_key.stop)

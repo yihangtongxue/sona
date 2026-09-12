@@ -1,11 +1,12 @@
 """Untrusted public metadata: bounded reads, exact targets, no publisher token."""
 
-import base64
 import hashlib
 import ipaddress
 import json
 import re
 import socket
+import platform
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,12 @@ PROXY_DNS_RANGE = ipaddress.ip_network("198.18.0.0/15")
 
 class UpdateError(ValueError):
     pass
+
+
+def current_target():
+    machine = platform.machine().lower()
+    architecture = {"amd64": "x64", "x86_64": "x64", "aarch64": "arm64"}.get(machine, machine)
+    return {"darwin": "macos", "win32": "windows"}.get(sys.platform, sys.platform), architecture
 
 
 def version_tuple(value):
@@ -93,17 +100,18 @@ class Release:
     architecture: str
     file_name: str = "Sona.zip"
     update_signature: dict | None = None
+    platform: str = "macos"
 
     def signed_asset(self):
-        return {"platform": "macos", "architecture": self.architecture, "packageType": "zip",
+        return {"platform": self.platform, "architecture": self.architecture, "packageType": "zip",
                 "fileName": self.file_name, "size": self.size, "sha256": self.sha256,
                 "updateSignature": self.update_signature}
 
 
-def parse_manifest(data, architecture="arm64"):
+def parse_manifest(data, architecture="arm64", *, platform="macos"):
     if (not isinstance(data, dict) or type(data.get("schemaVersion")) is not int
             or data["schemaVersion"] != 1 or data.get("channel") != "stable"):
-        raise UpdateError("不支持的更新清单格式，请检查 ReleaseHub 发布配置。")
+        raise UpdateError("不支持的更新清单格式，请检查 GitHub Release 发布配置。")
     version = data.get("version")
     version_tuple(version)
     if data.get("tag") != f"v{version}":
@@ -130,11 +138,13 @@ def parse_manifest(data, architecture="arm64"):
                 or not re.fullmatch(r"[0-9a-fA-F]{64}", checksum)):
             raise UpdateError("安装包的文件名、大小或校验值无效。")
         public_url(asset.get("downloadUrl"))
-        if target[0] == "macos" and target[2] == "zip":
+        if target[0] == platform and target[2] == "zip":
             candidates[target[1]] = Release(version, notes, size, checksum.lower(), asset["downloadUrl"], target[1],
-                                            name, asset.get("updateSignature"))
+                                            name, asset.get("updateSignature"), platform)
     # Exact architecture first, then an explicitly declared universal app.
-    release = candidates.get(architecture) or candidates.get("universal")
+    release = candidates.get(architecture)
+    if release is None and platform == "macos":
+        release = candidates.get("universal")
     if release is not None:
         try:
             verify_signature(version, release.signed_asset())
@@ -149,20 +159,10 @@ def fetch_manifest():
             raw = response.read(MAX_MANIFEST_BYTES + 1)
         if len(raw) > MAX_MANIFEST_BYTES:
             raise UpdateError("更新清单过大。")
-        envelope = json.loads(raw)
-        # CNB's public raw endpoint returns the manifest itself, without auth.
-        # Its management Contents API requires a publisher token and must not
-        # be used by installed clients. Keep envelope decoding for compatibility.
-        if isinstance(envelope, dict) and "schemaVersion" in envelope:
-            return envelope
-        if envelope == []:
-            return None
-        if not isinstance(envelope, dict) or not isinstance(envelope.get("content"), str):
+        manifest = json.loads(raw)
+        if not isinstance(manifest, dict) or "schemaVersion" not in manifest:
             raise UpdateError("未读取到有效的更新清单。")
-        if envelope.get("encoding", "base64") != "base64":
-            raise UpdateError("更新清单编码无效。")
-        content = base64.b64decode("".join(envelope["content"].split()), validate=True)
-        return json.loads(content)
+        return manifest
     except HTTPError as error:
         if error.code == 404:
             return None

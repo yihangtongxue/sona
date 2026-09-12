@@ -20,3 +20,7 @@ wheels/
 *.p12
 *.pfx
 .release-keys/
+
+# Local release staging and macOS metadata
+release-assets/
+.DS_Store

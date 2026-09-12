@@ -1,6 +1,7 @@
 """User-owned, signed .app replacement. Never elevate or execute a downloaded installer."""
 
 import json
+import logging
 import os
 import platform
 import plistlib
@@ -22,6 +23,7 @@ from .protocol import UpdateError, version_tuple
 from .signatures import SignatureError, verify_archive
 
 MAX_EXPANDED_BYTES = 10 * 1024**3
+logger = logging.getLogger(__name__)
 
 
 def installed_bundle():
@@ -39,11 +41,14 @@ def installed_bundle():
     return app
 
 
-def run_tool(arguments, timeout=120):
+def run_tool(arguments, timeout=120, *, action="应用操作"):
     try:
         return subprocess.run(arguments, check=True, capture_output=True, text=True, timeout=timeout)
-    except (OSError, subprocess.SubprocessError):
-        raise UpdateError("应用操作未完成，请检查安装包完整性、权限及系统兼容性。") from None
+    except (OSError, subprocess.SubprocessError) as error:
+        # Exported diagnostics keep the exception type and call locations, never
+        # the tool's stderr, command arguments or user paths.
+        logger.warning('更新工具调用失败 returncode=%s', getattr(error, 'returncode', None), exc_info=True)
+        raise UpdateError(f"{action}失败，请检查安装包完整性、权限及系统兼容性。") from None
 
 
 def app_info(app):
@@ -66,12 +71,15 @@ def signing_requirement(app):
     # Ad-hoc signing seals Mach-O resources but does NOT identify the publisher.
     # Publisher authentication comes from the pinned Ed25519 key and signed ZIP.
     requirement = f'identifier "{BUNDLE_ID}"'
-    run_tool(["/usr/bin/codesign", "--verify", "--deep", "--strict", "-R", requirement, str(app)])
+    # codesign treats -R's argument as a filename unless inline text starts with '='.
+    run_tool(["/usr/bin/codesign", "--verify", "--deep", "--strict", "-R", '=' + requirement, str(app)],
+             action="当前应用签名校验")
     return requirement
 
 
 def validate_app(app, requirement, expected_version):
-    run_tool(["/usr/bin/codesign", "--verify", "--deep", "--strict", "-R", requirement, str(app)])
+    run_tool(["/usr/bin/codesign", "--verify", "--deep", "--strict", "-R", '=' + requirement, str(app)],
+             action="更新包应用签名校验")
     info = app_info(app)
     if (info.get("CFBundleShortVersionString") != expected_version
             or info.get("CFBundleVersion") != expected_version):
@@ -86,7 +94,7 @@ def validate_app(app, requirement, expected_version):
         if (required + (0, 0))[:3] > (current + (0, 0))[:3]:
             raise UpdateError(f"此版本需要 macOS {minimum} 或更高版本。")
     executable = app / "Contents/MacOS" / info["CFBundleExecutable"]
-    if "arm64" not in run_tool(["/usr/bin/lipo", "-archs", str(executable)]).stdout.split():
+    if "arm64" not in run_tool(["/usr/bin/lipo", "-archs", str(executable)], action="更新包架构检查").stdout.split():
         raise UpdateError("更新包不支持 Apple 芯片。")
     # Do not run Gatekeeper as our publisher-authentication check: membership-free
     # releases are not notarized. Never disable Gatekeeper or remove quarantine.
@@ -184,7 +192,8 @@ def prepare_runner(directory: Path, current: Path, staged: Path, version: str):
     # being replaced, and never run code from the new archive before validation.
     runner = directory / "runner" / "Sona.app"
     shutil.copytree(current, runner, symlinks=True)
-    run_tool(["/usr/bin/codesign", "--verify", "--deep", "--strict", "-R", requirement, str(runner)])
+    run_tool(["/usr/bin/codesign", "--verify", "--deep", "--strict", "-R", '=' + requirement, str(runner)],
+             action="独立更新程序签名校验")
     (directory / "install.json").write_text(json.dumps({
         "target": str(current), "version": version, "parent_pid": os.getpid(),
     }), encoding="utf-8")
@@ -263,7 +272,7 @@ def apply_update(directory_name: str):
                 raise
             write_state(directory, state="installed", version=request["version"], backup=str(backup))
         # Launch only after releasing the instance lock. Keep previous.app for recovery.
-        run_tool(["/usr/bin/open", "-n", str(target)], timeout=30)
+        run_tool(["/usr/bin/open", "-n", str(target)], timeout=30, action="新版应用启动")
     except Exception as error:
         message = str(error) if isinstance(error, (UpdateError, SignatureError)) else "更新未完成，请重新打开应用后重试。"
         write_state(directory, state="failed", message=message, backup=str(backup) if backup else "", replaced=replaced)

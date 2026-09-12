@@ -1,6 +1,6 @@
 [project]
 name = "sona"
-version = "1.1.0"
+version = "1.0.0"
 description = "Local audio transcription with faster-whisper and MLX Whisper"
 readme = "README.md"
 authors = [

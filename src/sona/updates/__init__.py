@@ -1,1 +1,1 @@
-"""ReleaseHub protocol and macOS application updates."""
+"""Signed GitHub Releases updates for macOS and Windows."""

@@ -4,7 +4,7 @@
 
 Sona 是一款桌面音频转录工具：在本机将音频转成文字，再按需使用你配置的 AI 模型整理成易读的文稿。
 
-[版本发布页](https://cnb.cool/yihangtongxue/sona-release/-/releases) · [问题反馈](https://github.com/yihangtongxue/sona/issues) · [作者主页](https://maxcosmos.top)
+[版本发布页](https://github.com/yihangtongxue/sona/releases) · [问题反馈](https://github.com/yihangtongxue/sona/issues) · [作者主页](https://maxcosmos.top)
 
 ## 功能
 
@@ -20,13 +20,20 @@ Sona 是一款桌面音频转录工具：在本机将音频转成文字，再按
 
 ## 安装
 
-首版 Mac 安装包面向 **Apple 芯片（arm64）、macOS 26 或更高版本**。安装包以版本发布页实际提供的文件为准。
+发布版本从 **1.0.0** 开始，安装包和后续更新统一通过 GitHub Releases 提供。
 
-1. 在版本发布页下载 `.dmg` 文件。
-2. 打开 DMG，将 **Sona** 拖到 **应用程序**。
-3. 从应用程序中打开 Sona，不要一直从 DMG 中运行。
+| 系统 | 安装包 | 要求 |
+| --- | --- | --- |
+| Windows | `Sona-版本-windows-x64-setup.exe` | Windows 10 1809+ / Windows 11，x64 |
+| Mac | `Sona-版本-macos-arm64.dmg` | Apple 芯片，macOS 26+ |
 
-当前分发包未经过 Apple 公证，首次打开可能出现系统安全提示。请确认下载来源可信；不要关闭系统安全保护。Windows 暂未提供安装包。
+**Windows**：运行安装程序，安装到当前用户目录。缺少 Microsoft WebView2 时，安装程序会联网安装微软运行时；不需要自行安装 Python 或 CUDA SDK。ZIP 用于应用内更新，首次安装请选择 setup.exe。
+
+**Mac**：打开 DMG，将 **Sona** 拖到 **应用程序**，然后从应用程序中启动，不要一直从 DMG 中运行。
+
+Mac 分发包未经过 Apple 公证，Windows 安装程序未配置 Authenticode 代码签名，首次安装可能出现系统安全提示。请确认下载来源可信，不要关闭系统安全保护。更新包使用独立的 Ed25519 签名验证来源和完整性。
+
+如果之前使用过旧分发版本，需要手动覆盖安装此次 GitHub **1.0.0** 一次；原有文稿、模型及配置保留。此后在应用内接收递增版本的更新。
 
 ## 开始使用
 
@@ -70,7 +77,7 @@ Sona 是一款桌面音频转录工具：在本机将音频转成文字，再按
 技术栈：Python、pywebview、SQLite、Apple Speech / Whisper、LiteLLM。
 
 - [开发说明](docs/development.md)：本地运行、项目结构、数据与实现边界。
-- [Mac 发布指南](docs/macos-updates.md)：打包、签名、ReleaseHub 和更新恢复。
+- [GitHub 发布指南](docs/github-releases.md)：双平台自动构建、签名、版本发布和更新恢复。
 - [验收清单](docs/acceptance.md)：发布前需要实际验证的流程。
 
 作者：**一航同学YIHANG** · [maxcosmos.top](https://maxcosmos.top) · [联系作者](mailto:leo.morrison.2001@gmail.com)

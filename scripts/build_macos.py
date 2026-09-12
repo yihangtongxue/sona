@@ -1,4 +1,4 @@
-"""Manual build only; requires --confirm-version and an existing public key."""
+"""Build macOS release artifacts locally or in GitHub Actions, without secrets."""
 
 import argparse
 import importlib.metadata
@@ -9,12 +9,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from sona.updates.signatures import read_public_key
+from release_support import PUBLIC_KEY, check_build
 from sona.version import BUNDLE_ID, RELEASE_REPOSITORY, UPDATE_MANIFEST_URL, VERSION
 
 
@@ -24,26 +23,13 @@ def run(arguments, **kwargs):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--public-key", type=Path, required=True)
+    parser.add_argument("--public-key", type=Path, default=PUBLIC_KEY)
     parser.add_argument("--confirm-version", required=True)
     args = parser.parse_args()
     if sys.platform != "darwin" or platform.machine() != "arm64" or int(platform.mac_ver()[0].split('.')[0]) < 26:
         raise ValueError("当前打包配置需要 Apple 芯片 Mac、macOS 26 或更高版本。")
-    if args.confirm_version != VERSION:
-        raise ValueError(f"请先确认打包版本，当前为 {VERSION}。")
-    metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
-    lock = tomllib.loads((ROOT / "uv.lock").read_text())
-    locked = next(package for package in lock["package"] if package["name"] == "sona")
-    if metadata["project"]["version"] != VERSION or locked["version"] != VERSION:
-        raise ValueError("源码、项目配置和锁文件版本不一致。")
-    if importlib.metadata.version("pyinstaller") != "6.22.2":
-        raise ValueError("请使用已选定的 PyInstaller 6.22.2。")
     public_path = args.public_key.expanduser().resolve()
-    read_public_key(public_path)
-    public_record = json.loads(public_path.read_text())
-    # Only the public record is copied; reject a mixed file containing other keys.
-    if set(public_record) != {"algorithm", "keyId", "publicKey"}:
-        raise ValueError("公钥文件包含多余字段，请使用密钥工具生成的独立公钥文件。")
+    public_record = check_build(args.confirm_version, public_path)
     destination = ROOT / "dist" / f"Sona-{VERSION}-macos-arm64"
     if destination.exists():
         raise ValueError(f"输出目录已存在，不覆盖已有产物：{destination}")

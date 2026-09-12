@@ -13,7 +13,7 @@ uv run sona
 
 Mac 使用原生 arm64 Python。当前锁定的 MLX/Metal 依赖和 Mac 打包目标为 macOS 26+，不能只修改系统版本声明来支持旧系统。Apple Speech 开发运行还需要支持 macOS 26 API 的 Command Line Tools；安装包携带编译后的辅助程序。
 
-Windows x64 源码使用 faster-whisper，默认 CPU。NVIDIA 加速由用户在应用内下载和启用，仍需兼容的显卡驱动；不要求用户安装 CUDA SDK 或修改 PATH。Windows 安装包不在本次 Mac 首发范围内。
+Windows x64 源码使用 faster-whisper，默认 CPU。NVIDIA 加速由用户在应用内下载和启用，仍需兼容的显卡驱动；不要求用户安装 CUDA SDK 或修改 PATH。Windows 安装版使用 PyInstaller + Inno Setup，按当前用户安装；完整更新包不包含用户模型及数据。
 
 ## 代码分工
 
@@ -27,7 +27,7 @@ Windows x64 源码使用 faster-whisper，默认 CPU。NVIDIA 加速由用户在
 | `updates/`、`version.py` | 签名验证、更新安装、发行标识 |
 | `web/` | HTML、CSS、JavaScript 界面 |
 | `tests/` | 临时数据和模拟请求的回归用例 |
-| `scripts/`、`packaging/` | 手动签名与打包工具 |
+| `scripts/`、`packaging/`、`.github/workflows/release.yml` | 双平台打包、签名和 GitHub 自动发布 |
 
 ## 数据和恢复
 
@@ -70,3 +70,7 @@ Windows x64 源码使用 faster-whisper，默认 CPU。NVIDIA 加速由用户在
 ## 验证
 
 由开发者按 [验收清单](acceptance.md) 手动验证。模拟用例可手动运行 `uv run python -m unittest discover -s tests -v`。测试文件存在不代表测试通过；本轮修改未运行项目或测试，也未重建已有安装包。
+
+## 发布与版本
+
+GitHub 发行版本重置为 1.0.0，数据库版本仍为 6，应用标识和凭据存储名称不变。安装包、更新清单及反馈入口均使用当前 GitHub 仓库；详见 [GitHub 发布指南](github-releases.md)。只有推送版本标签触发正式发布，普通提交不发布。Actions 手动运行只产出构建附件，供维护者验收。

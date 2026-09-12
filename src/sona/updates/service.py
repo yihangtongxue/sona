@@ -11,8 +11,9 @@ import uuid
 from pathlib import Path
 
 from ..version import RELEASE_REPOSITORY, VERSION
-from .macos import extract_app, installed_bundle, prepare_runner, signing_requirement, validate_app
-from .protocol import UpdateError, download, fetch_manifest, parse_manifest, version_tuple
+from .backend import APP_DIRECTORY, extract_app, installed_bundle, prepare_runner, signing_requirement, validate_app
+from .common import process_running
+from .protocol import UpdateError, current_target, download, fetch_manifest, parse_manifest, version_tuple
 from .signatures import SignatureError, read_public_key, verify_signature
 
 logger = logging.getLogger(__name__)
@@ -54,8 +55,8 @@ class UpdateService:
                 if self._stop.wait(5):
                     return
                 try:
-                    os.kill(pid, 0)
-                except ProcessLookupError:
+                    if process_running(pid):
+                        continue
                     try:
                         (directory / "update.zip").unlink(missing_ok=True)
                         for name in ("runner", "unpacked", "helper-unpacked"):
@@ -136,11 +137,12 @@ class UpdateService:
         if data is None:
             self._set(state="unpublished", message="尚未发布版本。")
             return
-        version, release = parse_manifest(data)
+        platform, architecture = current_target()
+        version, release = parse_manifest(data, architecture, platform=platform)
         if version_tuple(version) <= version_tuple(VERSION):
             self._set(state="current", message="已是最新版本。")
         elif release is None:
-            self._set(state="unavailable", latest_version=version, message="新版本暂无适用于此 Mac 的 ZIP 更新包。")
+            self._set(state="unavailable", latest_version=version, message="新版本暂无适用于当前系统和架构的更新包。")
         else:
             self._release = release
             self._set(state="available", latest_version=version, notes=release.notes,
@@ -217,7 +219,7 @@ class UpdateService:
             finally:
                 backup.close()
                 source.close()
-            process = prepare_runner(directory, self._app, directory / "unpacked/Sona.app", self._release.version)
+            process = prepare_runner(directory, self._app, directory / "unpacked" / APP_DIRECTORY, self._release.version)
             # Confirm the trusted helper started before asking the main window to close.
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline:

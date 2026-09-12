@@ -1,0 +1,120 @@
+name: Build and release Sona
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize releases across versions so an older run cannot replace latest.
+concurrency:
+  group: sona-release
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: '3.13'
+          enable-cache: false
+      - name: Check release identity and tag
+        id: release
+        run: uv run --no-project --with cryptography==50.0.1 python scripts/github_release.py check
+
+  build:
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            architecture: arm64
+            runner: macos-26
+          - platform: windows
+            architecture: x64
+            runner: windows-2025
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      SONA_RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+      LITELLM_LOCAL_MODEL_COST_MAP: 'True'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: '3.13'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Build macOS DMG and update ZIP
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: uv run --locked --with pyinstaller==6.22.2 python scripts/build_macos.py --confirm-version "$SONA_RELEASE_VERSION"
+      - name: Download Microsoft WebView2 bootstrapper
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $bootstrapper = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $bootstrapper
+          "SONA_WEBVIEW_BOOTSTRAPPER=$bootstrapper" >> $env:GITHUB_ENV
+      - name: Build Windows installer and update ZIP
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: uv run --locked --with pyinstaller==6.22.2 python scripts/build_windows.py --confirm-version "$env:SONA_RELEASE_VERSION" --webview-bootstrapper "$env:SONA_WEBVIEW_BOOTSTRAPPER"
+      - name: Store installable artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sona-${{ matrix.platform }}-${{ matrix.architecture }}
+          path: |
+            dist/Sona-${{ needs.metadata.outputs.version }}-${{ matrix.platform }}-${{ matrix.architecture }}/*.zip
+            dist/Sona-${{ needs.metadata.outputs.version }}-${{ matrix.platform }}-${{ matrix.architecture }}/*.dmg
+            dist/Sona-${{ needs.metadata.outputs.version }}-${{ matrix.platform }}-${{ matrix.architecture }}/*.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'yihangtongxue/sona'
+    needs: [metadata, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: '3.13'
+          enable-cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: sona-*
+          path: release-assets
+          merge-multiple: true
+      - name: Sign with the existing update key
+        env:
+          SONA_UPDATE_PRIVATE_KEY_PEM: ${{ secrets.SONA_UPDATE_PRIVATE_KEY_PEM }}
+          SONA_UPDATE_KEY_PASSWORD: ${{ secrets.SONA_UPDATE_KEY_PASSWORD }}
+          SONA_RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: uv run --no-project --with cryptography==50.0.1 python scripts/release_keys.py sign --ci --confirm-version "$SONA_RELEASE_VERSION" release-assets/Sona-*
+      - name: Generate signed update manifest and checksums
+        run: uv run --no-project --with cryptography==50.0.1 python scripts/github_release.py prepare
+      - name: Upload all assets to a draft, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --no-project --with cryptography==50.0.1 python scripts/github_release.py publish

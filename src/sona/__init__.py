@@ -9,7 +9,7 @@ def main() -> None:
 
     # The trusted updater copy must never create a GUI or start background jobs.
     if len(sys.argv) == 3 and sys.argv[1] == "--sona-update-helper":
-        from .updates.macos import apply_update
+        from .updates.backend import apply_update
 
         apply_update(sys.argv[2])
         return
