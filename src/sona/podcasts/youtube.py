@@ -11,6 +11,8 @@ from yt_dlp.networking import Request
 from yt_dlp.networking.exceptions import RequestError
 from yt_dlp.utils import DownloadError, determine_protocol
 
+from sona.deno_runtime import find_deno_binary
+
 from .bilibili import MediaImportError, prepare_audio
 from .captions import MAX_SUBTITLE_BYTES, SubtitleError, parse_subtitles, save_payload
 from .errors import failure_metadata
@@ -29,9 +31,7 @@ def runtime_options():
     if getattr(sys, 'frozen', False):
         binary = Path(sys._MEIPASS) / 'sona' / 'native' / ('deno.exe' if sys.platform == 'win32' else 'deno')
     else:
-        import deno
-
-        binary = Path(deno.find_deno_bin())
+        binary = find_deno_binary()
     if not binary.is_file():
         raise MediaImportError('缺少 YouTube 获取组件，请同步项目依赖或重新安装完整版本的 Sona。')
     return {'js_runtimes': {'deno': {'path': str(binary)}}, 'remote_components': [],

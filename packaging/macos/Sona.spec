@@ -2,7 +2,7 @@
 import json
 import os
 from pathlib import Path
-from deno import find_deno_bin
+from sona.deno_runtime import find_deno_binary
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata
 
@@ -17,7 +17,7 @@ datas = [(str(root / "src/sona/web"), "sona/web"),
          (str(root / "assets/Sona.icns"), "sona/assets"),
          (str(stage / "update-public-key.json"), "sona/updates")]
 binaries = [(str(stage / "speech_asset_manager"), "sona/native")]
-binaries += [(find_deno_bin(), "sona/native")]
+binaries += [(str(find_deno_binary()), "sona/native")]
 hiddenimports = ["webview.platforms.cocoa", "keyring.backends.macOS", "certifi", "cryptography"]
 # Dynamic imports and model/tokenizer resources cannot all be inferred from the
 # GUI entry point. Collect installed packages only; never collect the workspace.

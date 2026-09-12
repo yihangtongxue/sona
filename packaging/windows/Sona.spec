@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from deno import find_deno_bin
+from sona.deno_runtime import find_deno_binary
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata
 
@@ -10,7 +10,7 @@ version = os.environ["SONA_BUILD_VERSION"]
 datas = [(str(root / "src/sona/web"), "sona/web"),
          (str(root / "src/sona/model_catalog.json"), "sona"),
          (str(stage / "update-public-key.json"), "sona/updates")]
-binaries = [(find_deno_bin(), "sona/native")]
+binaries = [(str(find_deno_binary()), "sona/native")]
 hiddenimports = ["webview.platforms.winforms", "webview.platforms.edgechromium", "keyring.backends.Windows",
                  "clr", "pythonnet", "certifi", "cryptography"]
 for package in ("faster_whisper", "ctranslate2", "av", "litellm", "tiktoken", "tiktoken_ext", "clr_loader", "yt_dlp", "yt_dlp_ejs", "curl_cffi"):
