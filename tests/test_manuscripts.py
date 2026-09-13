@@ -8,7 +8,7 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
 
 from sona.ai_model_service import AIModelService, ModelTestError
-from sona.database import ModelRepository
+from sona.database import ModelRepository, SCHEMA, SCHEMA_VERSION
 from sona.file_lock import exclusive_file_lock
 from sona.generation_budget import GenerationBudget, GenerationLimitError
 from sona.manuscripts import ManuscriptService, OPTIMIZE_PROMPT, split_transcript, title_material
@@ -144,6 +144,99 @@ class ManuscriptTests(unittest.TestCase):
         self.process("新标题")
         self.assertEqual(self.ai.generate_text.call_count, 1)
         self.assertEqual(self.repo.result(identifier)["body"], "整理后的正文。")
+
+    def test_body_retry_preserves_progress_with_a_different_model_budget(self):
+        original = '甲' * 1800 + '乙' * 1800 + '丙' * 900
+        with self.repo.connection() as db:
+            db.execute('UPDATE transcription_results SET text=?', (original,))
+        identifier = self.service.create('audio')
+        self.process('已整理的第一段。', ModelTestError('网络超时'))
+        saved = self.raw(identifier)
+        self.assertEqual(saved['source_offset'], 1800)
+        self.assertEqual(saved['body'], '已整理的第一段。')
+        self.assertEqual(saved['status'], 'failed')
+        self.assertEqual(self.repo.list_all()[0]['source_length'], len(original))
+        with self.assertRaises(ValueError):
+            self.repo.result(identifier)
+
+        self.ai.default_generation_profile.return_value = dict(self.profile, id='smaller-model')
+        self.ai.generation_budget.return_value = GenerationBudget(32768, 1024)
+        self.service.retry(identifier)
+        self.ai.generate_text.reset_mock()
+        self.ai.generate_text.side_effect = lambda session, prompt, payload, **kwargs: (
+            json.loads(payload)['transcript'] if prompt == OPTIMIZE_PROMPT else '新标题')
+        self.service._process(self.repo.claim())
+        payloads = [json.loads(call.args[2]) for call in self.ai.generate_text.call_args_list[:-1]]
+        self.assertEqual(''.join(part['transcript'] for part in payloads), original[1800:])
+        self.assertEqual(payloads[0]['context'], original[1600:1800])
+        self.assertTrue(all(len(part['transcript']) < 1800 for part in payloads))
+        self.assertEqual(self.repo.result(identifier)['body'],
+                         '\n\n'.join(['已整理的第一段。'] + [part['transcript'] for part in payloads]))
+
+    def test_retry_preserves_successful_subchunks_after_output_limit(self):
+        original = '甲' * 400
+        with self.repo.connection() as db:
+            db.execute('UPDATE transcription_results SET text=?', (original,))
+        identifier = self.service.create('audio')
+        self.process(GenerationLimitError('输出截断'), '前半段。', ModelTestError('网络超时'))
+        self.assertEqual(self.raw(identifier)['source_offset'], 200)
+        self.assertEqual(self.raw(identifier)['body'], '前半段。')
+        self.service.retry(identifier)
+        self.ai.generate_text.reset_mock()
+        self.process('后半段。', '标题')
+        payload = json.loads(self.ai.generate_text.call_args_list[0].args[2])
+        self.assertEqual(payload['transcript'], original[200:])
+        self.assertEqual(self.repo.result(identifier)['body'], '前半段。\n\n后半段。')
+
+    def test_restart_resumes_persisted_chunks_without_repeating_them(self):
+        original = '甲' * 1800 + '乙' * 200
+        with self.repo.connection() as db:
+            db.execute('UPDATE transcription_results SET text=?', (original,))
+        identifier = self.service.create('audio')
+        # Simulate process termination during the second request, before the
+        # usual exception handler has a chance to mark the job failed.
+        with self.assertRaises(KeyboardInterrupt):
+            self.process('第一段。', KeyboardInterrupt())
+        self.assertEqual(self.raw(identifier)['status'], 'optimizing')
+        reopened = ManuscriptService(self.database, self.ai, start_worker=False)
+        self.addCleanup(reopened.close)
+        reopened.repository.recover()
+        self.assertEqual(self.raw(identifier)['source_offset'], 1800)
+        reopened.retry(identifier)
+        self.ai.generate_text.reset_mock()
+        self.ai.generate_text.side_effect = ['第二段。', '标题']
+        reopened._process(reopened.repository.claim())
+        self.assertEqual(self.ai.generate_text.call_count, 2)
+        payload = json.loads(self.ai.generate_text.call_args_list[0].args[2])
+        self.assertEqual(payload['transcript'], original[1800:])
+        self.assertEqual(self.repo.result(identifier)['body'], '第一段。\n\n第二段。')
+
+    def test_legacy_migration_keeps_finished_body_for_title_retry(self):
+        schema = next(item for item in SCHEMA if item.startswith('CREATE TABLE IF NOT EXISTS manuscripts ('))
+        legacy_schema = '\n'.join(line for line in schema.splitlines() if 'source_offset' not in line)
+        with self.repo.connection() as db:
+            db.execute('DROP TABLE manuscripts')
+            db.execute(legacy_schema)
+            db.execute('PRAGMA user_version=9')
+            db.executemany('''INSERT INTO manuscripts(id,status,source_text,model_json,body)
+                              VALUES (?,?,?,?,?)''', [
+                ('title-failed', 'failed', '原文。', json.dumps(self.profile), '旧版完整正文。'),
+                ('body-failed', 'failed', '原文。', json.dumps(self.profile), ''),
+                ('finished', 'completed', '', '{}', '已完成的正文。'),
+            ])
+        ModelRepository(self.database, ())
+        self.assertEqual(self.raw('title-failed')['source_offset'], len('原文。'))
+        self.assertEqual(self.raw('body-failed')['source_offset'], 0)
+        self.assertEqual(self.repo.result('finished')['body'], '已完成的正文。')
+        with self.repo.connection() as db:
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], SCHEMA_VERSION)
+        before = self.raw('title-failed')
+        ModelRepository(self.database, ())
+        self.assertEqual(self.raw('title-failed'), before)
+        self.service.retry('title-failed')
+        self.process('新标题')
+        self.ai.generate_text.assert_called_once()
+        self.assertEqual(self.repo.result('title-failed')['body'], '旧版完整正文。')
 
     def test_invalid_title_does_not_complete(self):
         identifier = self.service.create("audio")

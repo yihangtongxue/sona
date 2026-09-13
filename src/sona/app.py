@@ -14,6 +14,7 @@ from .audio_library import AudioLibrary
 from .database import ModelRepository
 from .model_service import ModelService
 from .manuscripts import ManuscriptService
+from .manuscript_export import export_txt, manuscript_filename
 from .models import BUILTIN_MODELS, transcription_engine
 from .logging_config import configure_logging
 from .paths import get_app_paths
@@ -79,6 +80,15 @@ def _run_app(paths) -> None:
         export_bundle(paths.data_dir / "logs", destination)
         return True
 
+    def export_manuscript(manuscript):
+        selected = window.create_file_dialog(webview.FileDialog.SAVE,
+            save_filename=manuscript_filename(manuscript['title']), file_types=("文本文件 (*.txt)",))
+        if not selected:
+            return False
+        destination = Path(selected if isinstance(selected, str) else selected[0])
+        export_txt(manuscript, destination)
+        return True
+
     web_root = Path(__file__).with_name("web")
     icon_path = (Path(__file__).with_name("assets") / "Sona.icns" if getattr(sys, "frozen", False)
                  else Path(__file__).resolve().parents[2] / "assets" / "Sona.icns")
@@ -89,7 +99,8 @@ def _run_app(paths) -> None:
             background_color="#141414" if appearance.get_theme() == "dark" else "#f9f9f9",
             js_api=AppApi(model_service, audio_library, transcription, acceleration, ai_model_service,
                           manuscripts, updates, activity, consent=AIUsageConsent(paths.data_dir),
-                          diagnostics=export_diagnostics, podcasts=podcasts, appearance=appearance),
+                          diagnostics=export_diagnostics, podcasts=podcasts, appearance=appearance,
+                          manuscript_export=export_manuscript),
         )
         configure_window_chrome(window, appearance)
         updates.bind_window(window.destroy)

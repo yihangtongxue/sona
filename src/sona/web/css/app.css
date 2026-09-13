@@ -210,6 +210,7 @@ h1 { margin-bottom: 12px; font-size: 2rem; font-weight: 720; line-height: 1.2; }
 .transcript { min-width: 0; padding: clamp(20px, 2vw, 32px); border-radius: 8px; background: var(--surface); }
 .transcript-toolbar, .transcript-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .transcript-toolbar { justify-content: space-between; margin-bottom: 24px; }
+#manuscript .transcript-actions { margin-inline-start: auto; justify-content: flex-end; }
 .transcript h2 { font-size: 1.25rem; overflow-wrap: anywhere; }
 .transcript-content { max-width: 100ch; margin: 20px auto 0; line-height: 1.9; font-size: .9375rem; user-select: text; overflow-wrap: anywhere; }
 .transcript-content p { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: start; gap: 12px; padding: 10px 0; }
@@ -222,6 +223,7 @@ h1 { margin-bottom: 12px; font-size: 2rem; font-weight: 720; line-height: 1.2; }
 .manuscript-table th:nth-child(3) { width: 156px; }
 .manuscript-table td:nth-child(3) { white-space: normal; }
 .manuscript-error { margin-top: 6px; font-size: .75rem; line-height: 1.6; overflow-wrap: anywhere; }
+.manuscript-progress { margin-top: 6px; font-size: .75rem; line-height: 1.6; color: var(--ink-muted); }
 .manuscript-error summary { cursor: pointer; color: var(--ink-muted); }
 .manuscript-error p { margin-top: 6px; color: var(--danger); }
 .audio-operations { text-align: right; }

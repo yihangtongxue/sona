@@ -9,6 +9,7 @@ const viewer = document.querySelector("#manuscript");
 const title = document.querySelector("#manuscript-title");
 const content = document.querySelector("#manuscript-content");
 const copy = document.querySelector("#manuscript-copy");
+const exportButton = document.querySelector("#manuscript-export");
 const feedback = document.querySelector("#manuscript-feedback");
 const feedbackMessage = document.querySelector("#manuscript-feedback-message");
 const rows = new Map();
@@ -40,7 +41,7 @@ function button(label, method, record) {
   element.dataset.method = method;
   element.setAttribute("aria-label", `${label}：${record.title}`);
   if (method === "delete_manuscript") element.setAttribute("aria-haspopup", "dialog");
-  if (method === "retry_manuscript") element.title = "使用当前默认 AI 模型重试，可能产生费用";
+  if (method === "retry_manuscript") element.title = "使用当前默认 AI 模型继续未完成的内容，已保存的正文会保留，可能产生费用";
   element.addEventListener("click", () => perform(method, record));
   return element;
 }
@@ -83,6 +84,14 @@ function render(records) {
       badge.className = `audio-status is-${record.status === "optimizing" ? "transcribing" : record.status}`;
       badge.textContent = record.status === "optimizing" ? record.detail || labels.optimizing : labels[record.status] || "待处理";
       state.append(badge);
+      if (record.status === "failed" && record.source_offset > 0 && record.source_length > 0) {
+        const progress = document.createElement("p");
+        progress.className = "manuscript-progress";
+        progress.textContent = record.source_offset >= record.source_length
+          ? "正文已保存，重试仅生成标题"
+          : `已保存 ${Math.floor(record.source_offset * 100 / record.source_length)}% 进度，重试将继续优化`;
+        state.append(progress);
+      }
       if (record.status === "failed" && record.error) {
         const details = document.createElement("details");
         details.className = "manuscript-error";
@@ -98,7 +107,7 @@ function render(records) {
       const actions = document.createElement("div");
       actions.className = "audio-row-actions";
       if (record.status === "completed") actions.append(button("查看", "get_manuscript", record));
-      if (record.status === "failed") actions.append(button("重试", "retry_manuscript", record));
+      if (record.status === "failed") actions.append(button(record.source_offset > 0 ? "继续优化" : "重试", "retry_manuscript", record));
       if (["completed", "failed"].includes(record.status)) actions.append(button("删除", "delete_manuscript", record));
       operations.append(actions);
       entry.signature = signature;
@@ -182,6 +191,20 @@ export function openManuscripts() {
 
 document.querySelector("#manuscript-back").addEventListener("click", openManuscripts);
 document.querySelector("#manuscript-reload").addEventListener("click", load);
+exportButton.addEventListener("click", async () => {
+  if (!current || exportButton.disabled) return;
+  const identifier = current.id;
+  exportButton.disabled = true;
+  exportButton.textContent = "正在导出…";
+  try {
+    if (await api().export_manuscript(identifier)) showToast("TXT 文稿已保存。", "success");
+  } catch (error) {
+    showToast(String(error?.message ?? error), "error");
+  } finally {
+    exportButton.disabled = false;
+    exportButton.textContent = "导出 TXT";
+  }
+});
 copy.addEventListener("click", async () => {
   if (!current) return;
   const text = current.body;

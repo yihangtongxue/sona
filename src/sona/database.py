@@ -12,7 +12,8 @@ from .models import ModelDefinition, ModelEvent
 # was removed. Version 6 adopted the current schema; version 7 adds the podcast
 # acquisition table. Version 8 adds Bilibili and canonical link aliases.
 # Version 9 adds YouTube options and text-only subtitle results.
-SCHEMA_VERSION = 9
+# Version 10 saves manuscript progress after every completed chunk.
+SCHEMA_VERSION = 10
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS models (
             id TEXT PRIMARY KEY,
@@ -136,6 +137,7 @@ SCHEMA = (
             source_text TEXT NOT NULL,
             model_json TEXT NOT NULL,
             body TEXT NOT NULL DEFAULT '',
+            source_offset INTEGER NOT NULL DEFAULT 0 CHECK(source_offset >= 0),
             detail TEXT NOT NULL DEFAULT '',
             error TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -182,6 +184,16 @@ def migrate_media_imports(connection):
         connection.execute('DROP TABLE saved_media_aliases')
 
 
+def migrate_manuscript_progress(connection):
+    columns = {row[1] for row in connection.execute('PRAGMA table_info(manuscripts)')}
+    if 'source_offset' in columns:
+        return
+    connection.execute('ALTER TABLE manuscripts ADD COLUMN source_offset INTEGER NOT NULL DEFAULT 0 CHECK(source_offset >= 0)')
+    # Earlier versions saved body only after all source chunks had succeeded.
+    # Such jobs must still retry only title generation after the upgrade.
+    connection.execute("UPDATE manuscripts SET source_offset=length(source_text) WHERE body<>''")
+
+
 class ModelRepository:
     def __init__(self, database: Path, models: Sequence[ModelDefinition]) -> None:
         self.database = database
@@ -195,6 +207,7 @@ class ModelRepository:
             migrate_media_imports(connection)
             for statement in SCHEMA:
                 connection.execute(statement)
+            migrate_manuscript_progress(connection)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             for model in models:
                 connection.execute(

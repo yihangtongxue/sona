@@ -45,7 +45,7 @@ class AppApi:
     def __init__(self, model_service: ModelService, audio_library: AudioLibrary, transcription,
                  acceleration=None, ai_model_service: AIModelService | None = None,
                  manuscripts=None, updates=None, activity=None, consent=None, diagnostics=None,
-                 podcasts=None, appearance=None) -> None:
+                 podcasts=None, appearance=None, manuscript_export=None) -> None:
         self._model_service = model_service
         self._audio_library = audio_library
         self._transcription = transcription
@@ -58,6 +58,7 @@ class AppApi:
         self._diagnostics = diagnostics
         self._podcasts = podcasts
         self._appearance = appearance
+        self._manuscript_export = manuscript_export
 
     def get_theme(self) -> str:
         return self._appearance.get_theme()
@@ -102,6 +103,11 @@ class AppApi:
     @log_api_call
     def get_manuscript(self, identifier: str) -> dict:
         return self._manuscripts.repository.result(identifier)
+
+    @log_api_call
+    def export_manuscript(self, identifier: str) -> bool:
+        manuscript = self._manuscripts.repository.result(identifier)
+        return self._manuscript_export(manuscript)
 
     @log_api_call
     def retry_manuscript(self, identifier: str, confirmed: bool = False) -> None:

@@ -107,9 +107,8 @@ def transcript_payload(text, context):
     return json.dumps({'context': context, 'transcript': text}, ensure_ascii=False)
 
 
-def plan_transcript(text, budget):
+def plan_transcript(text, budget, *, start=0):
     """Check the full request and response budget before sending each chunk."""
-    start = 0
     while start < len(text):
         context = text[max(0, start - 200):start]
 
@@ -181,7 +180,8 @@ class ManuscriptRepository:
     def list_all(self) -> list[dict]:
         with self.connection() as db:
             rows = db.execute(
-                """SELECT id,title,status,detail,error,created_at,updated_at FROM manuscripts
+                """SELECT id,title,status,detail,error,created_at,updated_at,
+                          source_offset,length(source_text) AS source_length FROM manuscripts
                    ORDER BY created_at DESC,id DESC""",
             ).fetchall()
         return [dict(row) for row in rows]
@@ -210,18 +210,27 @@ class ManuscriptRepository:
                        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?""", (row["id"],))
         return dict(row)
 
-    def progress(self, identifier: str, detail: str, *, body: str | None = None):
+    def progress(self, identifier: str, detail: str):
         with self.connection() as db:
-            db.execute("""UPDATE manuscripts SET detail=?,body=COALESCE(?,body),
+            db.execute("""UPDATE manuscripts SET detail=?,
                        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='optimizing'""",
-                       (detail, body, identifier))
+                       (detail, identifier))
+
+    def checkpoint(self, identifier: str, body: str, source_offset: int):
+        # Save output and its source position together: a restart must neither
+        # repeat successful chunks nor skip text whose output was not persisted.
+        with self.connection() as db:
+            db.execute("""UPDATE manuscripts SET body=?,source_offset=?,
+                       updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='optimizing'""",
+                       (body, source_offset, identifier))
 
     def complete(self, identifier: str, title: str):
         with self.connection() as db:
             # Completed manuscripts have neither the source snapshot nor credential reference.
             db.execute("""UPDATE manuscripts SET title=?,status='completed',source_text='',model_json='{}',
-                       detail='',error='',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                       WHERE id=? AND status='optimizing' AND length(trim(body))>0""", (title, identifier))
+                       source_offset=0,detail='',error='',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                       WHERE id=? AND status='optimizing' AND length(trim(body))>0
+                       AND source_offset=length(source_text)""", (title, identifier))
 
     def fail(self, identifier: str, error: str):
         with self.connection() as db:
@@ -292,18 +301,21 @@ class ManuscriptService:
             session = self._ai_models.prepare_generation(json.loads(job["model_json"]))
             budget = self._ai_models.generation_budget(session)
             body = job["body"]
-            if not body:
-                chunks = deque(plan_transcript(job['source_text'], budget))
-                output = []
+            source = job['source_text']
+            source_offset = job['source_offset']
+            if source_offset < len(source):
+                # Replan only the remaining source with the current model's
+                # budget, retaining original context and successful output.
+                chunks = deque(plan_transcript(source, budget, start=source_offset))
                 while chunks:
                     self._check_stopping()
                     chunk, context, depth = chunks.popleft()
-                    detail = f'正在优化 {len(output) + 1}/{len(output) + 1 + len(chunks)}'
+                    detail = f'正在优化 {source_offset * 100 // len(source)}%'
                     self.repository.progress(identifier, detail)
                     try:
-                        output.append(self._ai_models.generate_text(
+                        generated = self._ai_models.generate_text(
                             session, OPTIMIZE_PROMPT, transcript_payload(chunk, context),
-                            budget=budget, output_hint=chunk))
+                            budget=budget, output_hint=chunk)
                     except GenerationLimitError:
                         # Discard truncated output. Only this uncompleted source
                         # chunk is subdivided; earlier successful chunks stay put.
@@ -312,8 +324,10 @@ class ManuscriptService:
                         parts = split_transcript(chunk, max(1, len(chunk) // 2))
                         # Drop optional context on size retries to leave more room.
                         chunks.extendleft(reversed([(part, '', depth + 1) for part in parts]))
-                body = "\n\n".join(output)
-                self.repository.progress(identifier, "正在生成标题", body=body)
+                        continue
+                    body = f'{body}\n\n{generated}' if body else generated
+                    source_offset += len(chunk)
+                    self.repository.checkpoint(identifier, body, source_offset)
             self._check_stopping()
             self.repository.progress(identifier, "正在生成标题")
             title = self._generate_title(session, body, budget)
