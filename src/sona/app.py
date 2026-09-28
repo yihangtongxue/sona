@@ -30,6 +30,8 @@ from .podcasts.service import PodcastService
 from .localization import WEBVIEW_ZH
 from .window_chrome import configure_window_chrome
 from .appearance import AppearanceSettings
+from .window_settings import WindowSettings
+from .window_lifecycle import ServiceShutdown, WindowLifecycle
 
 
 def main() -> None:
@@ -52,6 +54,7 @@ def _run_app(paths) -> None:
                 transcription_engine(), paths.data_dir)
     repository = ModelRepository(paths.database, BUILTIN_MODELS)
     appearance = AppearanceSettings(paths.data_dir)
+    window_settings = WindowSettings(paths.data_dir)
     audio_library = AudioLibrary(paths.database, paths.audio_dir)
     whisper_provider = WhisperBundleProvider(paths.models_dir, paths.downloads_dir)
     apple_provider = AppleSpeechProvider()
@@ -68,6 +71,8 @@ def _run_app(paths) -> None:
     podcasts = PodcastService(paths, audio_library, activity)
     updates = UpdateService(paths, activity, other_busy=lambda: audio_library.is_importing()
                             or any(record.get('active') for record in model_service.list_models()))
+    shutdown = ServiceShutdown(updates, podcasts, manuscripts, transcription,
+                               acceleration, audio_library, model_service)
 
     def export_diagnostics():
         selected = window.create_file_dialog(webview.FileDialog.SAVE,
@@ -89,6 +94,9 @@ def _run_app(paths) -> None:
         export_txt(manuscript, destination)
         return True
 
+    def export_transcription(result):
+        return export_manuscript({'title': result['name'], 'body': result['text']})
+
     web_root = Path(__file__).with_name("web")
     icon_path = (Path(__file__).with_name("assets") / "Sona.icns" if getattr(sys, "frozen", False)
                  else Path(__file__).resolve().parents[2] / "assets" / "Sona.icns")
@@ -100,10 +108,12 @@ def _run_app(paths) -> None:
             js_api=AppApi(model_service, audio_library, transcription, acceleration, ai_model_service,
                           manuscripts, updates, activity, consent=AIUsageConsent(paths.data_dir),
                           diagnostics=export_diagnostics, podcasts=podcasts, appearance=appearance,
-                          manuscript_export=export_manuscript),
+                          manuscript_export=export_manuscript, transcription_export=export_transcription,
+                          window_settings=window_settings),
         )
         configure_window_chrome(window, appearance)
-        updates.bind_window(window.destroy)
+        lifecycle = WindowLifecycle(window, window_settings, shutdown)
+        updates.bind_window(lifecycle.request_quit)
         updates.start_automatic_checks()
         # pywebview's Windows backend requires an .ico file; passing the macOS
         # .icns asset makes System.Drawing fail before the window is shown.
@@ -114,18 +124,4 @@ def _run_app(paths) -> None:
             start_options["icon"] = str(icon_path)
         webview.start(**start_options)
     finally:
-        logger.info('应用关闭，正在停止后台任务')
-        updates.close()
-        podcasts.close()
-        manuscripts.close()
-        try:
-            transcription.close()
-        finally:
-            try:
-                acceleration.close()
-            finally:
-                try:
-                    audio_library.close()
-                finally:
-                    model_service.close()
-        logger.info('后台任务停止请求已发送，应用退出')
+        shutdown()

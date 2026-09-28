@@ -36,12 +36,13 @@
         <section class="view import-view" data-panel="upload" aria-label="导入音频">
           <input id="audio-file" type="file" accept=".mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.aif,.aiff,.wma,.mp4,.mov,.mkv,.webm,.avi,.m4v,.wmv,.flv,.mpg,.mpeg" hidden />
           <div class="import-source-grid" id="import-sources">
-            <button class="import-source-card drop-zone" type="button" id="drop-zone" data-upload-trigger aria-describedby="local-import-help">
+            <div class="import-source-card">
               <span class="source-icon source-icon-local" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 14v2m4-4v6m4-4v2" /></svg></span>
-              <strong class="source-name">本地文件</strong>
+              <strong class="source-name" id="local-import-title">本地文件</strong>
               <span class="source-description" id="local-import-help">选择或拖入音频、视频文件。支持 MP3、MP4、MOV 等格式，视频仅转录声音。</span>
-              <span class="source-action">选择文件<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg></span>
-            </button>
+              <span class="source-action" id="local-import-action">选择文件<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg></span>
+              <button class="import-source-trigger drop-zone" type="button" id="drop-zone" data-upload-trigger aria-labelledby="local-import-title local-import-action" aria-describedby="local-import-help"></button>
+            </div>
           </div>
           <div class="import-progress" id="import-progress" hidden>
             <p class="import-status" id="import-status" aria-live="polite"></p>
@@ -60,6 +61,7 @@
               <button type="button" class="secondary-button" id="transcript-back">返回列表</button>
               <div class="transcript-actions">
                 <button type="button" class="secondary-button" id="transcript-copy">复制全文</button>
+                <button type="button" class="secondary-button" id="transcript-export" aria-haspopup="dialog">导出 TXT</button>
                 <button type="button" class="secondary-button" id="transcript-optimize" title="使用默认 AI 模型整理；正文会发送到该模型的接口，可能产生费用">优化转录</button>
               </div>
             </div>
@@ -121,6 +123,27 @@
               </div>
               <p class="appearance-feedback" id="appearance-feedback" role="status" hidden></p>
               <button class="secondary-button" id="appearance-retry" type="button" hidden>重新加载</button>
+            </section>
+            <section class="settings-group" id="window-settings" aria-labelledby="window-settings-title" hidden>
+              <div class="group-heading"><h2 id="window-settings-title">窗口</h2></div>
+              <div class="appearance-row">
+                <div class="appearance-info">
+                  <label id="window-close-label" for="window-close-action">关闭主窗口时</label>
+                  <p id="window-close-description">进入系统托盘后，转录和下载会继续。右键点击托盘图标可退出应用。</p>
+                </div>
+                <div class="custom-select appearance-select" id="window-close-select">
+                  <button class="select-trigger" id="window-close-action" data-select-trigger type="button" role="combobox" aria-labelledby="window-close-label" aria-describedby="window-close-description" aria-haspopup="listbox" aria-controls="window-close-options" aria-expanded="false" disabled>
+                    <span data-select-value>进入系统托盘</span>
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+                  </button>
+                  <div class="select-menu" id="window-close-options" data-select-menu role="listbox" aria-labelledby="window-close-label" hidden>
+                    <div class="select-option" id="window-close-tray" data-select-option="tray" role="option" aria-selected="true">进入系统托盘</div>
+                    <div class="select-option" id="window-close-quit" data-select-option="quit" role="option" aria-selected="false">退出应用</div>
+                  </div>
+                </div>
+              </div>
+              <p class="appearance-feedback" id="window-settings-feedback" role="status" hidden></p>
+              <button class="secondary-button" id="window-settings-retry" type="button" hidden>重新加载</button>
             </section>
             <section class="settings-group" aria-labelledby="acceleration-title">
               <div class="group-heading"><h2 id="acceleration-title">转录加速</h2></div>
@@ -198,12 +221,13 @@
     </div>
     <div class="toast-region" id="toast-region" role="region" aria-label="操作提示"></div>
     <template id="podcast-source-template">
-      <button class="import-source-card" type="button" aria-haspopup="dialog" aria-controls="podcast-dialog">
+      <div class="import-source-card">
         <span class="source-icon" data-source-icon aria-hidden="true"></span>
         <strong class="source-name" data-source-name></strong>
         <span class="source-description" data-source-description></span>
         <span class="source-action">粘贴链接<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg></span>
-      </button>
+        <button class="import-source-trigger" type="button" aria-haspopup="dialog" aria-controls="podcast-dialog"></button>
+      </div>
     </template>
     <dialog class="app-dialog podcast-dialog" id="podcast-dialog" aria-labelledby="podcast-title" aria-describedby="podcast-help">
       <div class="dialog-heading">

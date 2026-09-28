@@ -13,6 +13,7 @@ const transcript = document.querySelector("#transcript");
 const transcriptTitle = document.querySelector("#transcript-title");
 const transcriptContent = document.querySelector("#transcript-content");
 const copyButton = document.querySelector("#transcript-copy");
+const exportButton = document.querySelector("#transcript-export");
 const optimizeButton = document.querySelector("#transcript-optimize");
 const taskDialog = document.querySelector("#task-detail-dialog");
 const taskDialogName = document.querySelector("#task-detail-name");
@@ -38,6 +39,7 @@ let currentResult = null;
 let resultRequest = 0;
 let detailRecordId = null;
 let creatingManuscript = false;
+let exportingTranscript = false;
 let locateId = null;
 let transcriptRenderTimer;
 const TRANSCRIPT_BATCH_SIZE = 200;
@@ -343,6 +345,7 @@ function showResult(result) {
   source.hidden = false;
   source.textContent = [sourceLabels[result.source_kind] ?? "本地转录", result.language].filter(Boolean).join(" · ");
   copyButton.disabled = !result.text;
+  exportButton.disabled = exportingTranscript || !result.text?.trim();
   optimizeButton.disabled = creatingManuscript || !result.text?.trim();
   transcriptContent.replaceChildren();
   if (!result.segments.length) {
@@ -389,6 +392,22 @@ export function openAudioLibrary() {
 }
 
 document.querySelector("#transcript-back").addEventListener("click", openAudioLibrary);
+exportButton.addEventListener("click", async () => {
+  if (exportingTranscript || !currentResult?.text?.trim()) return;
+  const identifier = currentResult.audio_id;
+  exportingTranscript = true;
+  exportButton.disabled = true;
+  exportButton.textContent = "正在导出…";
+  try {
+    if (await api().export_transcription(identifier)) showToast("原始转录 TXT 已保存。", "success");
+  } catch (error) {
+    showToast(String(error?.message ?? error), "error");
+  } finally {
+    exportingTranscript = false;
+    exportButton.disabled = !currentResult?.text?.trim();
+    exportButton.textContent = "导出 TXT";
+  }
+});
 optimizeButton.addEventListener("click", async () => {
   if (creatingManuscript || !currentResult?.text?.trim()) return;
   const result = currentResult;

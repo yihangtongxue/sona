@@ -86,11 +86,16 @@ export function initializeImportSources(onImported) {
     icon.classList.add(`source-icon-${source.id}`);
     icon.innerHTML = source.icon; // Static application-owned SVG, never remote content.
     card.querySelector("[data-source-name]").textContent = source.name;
-    card.querySelector("[data-source-description]").textContent = source.description;
-    card.addEventListener("click", () => {
+    const description = card.querySelector("[data-source-description]");
+    description.id = `import-source-${source.id}-description`;
+    description.textContent = source.description;
+    const trigger = card.querySelector(".import-source-trigger");
+    trigger.setAttribute("aria-label", `${source.name}：粘贴链接`);
+    trigger.setAttribute("aria-describedby", description.id);
+    trigger.addEventListener("click", () => {
       if (submitting) return;
       activeSource = source;
-      opener = card;
+      opener = trigger;
       clearError();
       document.querySelector("#podcast-title").textContent = `从 ${source.name} 导入`;
       document.querySelector("#podcast-help").textContent = source.help;
