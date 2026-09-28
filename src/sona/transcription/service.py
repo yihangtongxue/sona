@@ -13,7 +13,7 @@ import tempfile
 from contextlib import nullcontext
 
 from ..file_lock import FileLocked, exclusive_file_lock
-from ..audio_library import AUDIO_SUFFIXES
+from ..audio_library import MEDIA_SUFFIXES
 from ..models import engine_supported
 from .repository import TaskRepository
 from .worker import run_worker
@@ -119,8 +119,8 @@ class TranscriptionService:
             try:
                 # Only validated IDs/extensions participate in file paths.
                 identifier = str(uuid.UUID(record['audio_id']))
-                if record['suffix'] not in AUDIO_SUFFIXES:
-                    raise ValueError('音频记录中的文件格式无效。')
+                if record['suffix'] not in MEDIA_SUFFIXES:
+                    raise ValueError('转录记录中的文件格式无效。')
                 audio_path = self._paths.audio_dir / f"{identifier}{record['suffix']}"
                 # The supervisor owns temporary audio, so killing a worker on
                 # cancellation still removes its decoded file.

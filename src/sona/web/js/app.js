@@ -11,6 +11,9 @@ import { openAppearanceSettings } from "./appearance.js";
 const navigationItems = document.querySelectorAll("[data-view]");
 const panels = document.querySelectorAll("[data-panel]");
 const fileInput = document.querySelector("#audio-file");
+// Use the picker's explicit extensions for drag-and-drop too. Browser MIME
+// values for video containers may be missing or differ between platforms.
+const mediaExtensions = new Set(fileInput.accept.split(",").map((extension) => extension.trim().toLowerCase()));
 const dropZone = document.querySelector("#drop-zone");
 const importProgress = document.querySelector("#import-progress");
 const importStatus = document.querySelector("#import-status");
@@ -51,13 +54,12 @@ async function selectAudioFile(files) {
   if (!files.length) return;
   const file = files[0];
   if (files.length !== 1) {
-    showToast("请一次选择一个音频文件。");
+    showToast("请一次选择一个音频或视频文件。");
     return;
   }
-  const audioExtension = /\.(mp3|wav|m4a|aac|flac|ogg|opus|aiff?|wma)$/i.test(file.name);
-  const genericType = !file.type || file.type === "application/octet-stream";
-  if (!file.type.startsWith("audio/") && !(genericType && audioExtension)) {
-    showToast("请选择音频文件，例如 MP3、WAV 或 M4A。");
+  const extension = file.name.match(/\.[^.]+$/)?.[0].toLowerCase();
+  if (!mediaExtensions.has(extension)) {
+    showToast("请选择支持的音频或视频文件，例如 MP3、WAV、M4A、MP4、MOV 或 MKV。");
     return;
   }
   if (file.size === 0) {

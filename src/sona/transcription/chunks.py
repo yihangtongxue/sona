@@ -12,6 +12,7 @@ CHUNK_SAMPLES = SAMPLE_RATE * CHUNK_SECONDS
 
 
 def pcm_frames(path, format):
+    """Decode the first audio track of audio/video files, ignoring video frames."""
     import av
 
     with av.open(str(path)) as container:

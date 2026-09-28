@@ -139,7 +139,7 @@ function render(records) {
     const cell = list.insertRow().insertCell();
     cell.colSpan = 5;
     cell.className = "audio-empty";
-    cell.textContent = "暂无音频";
+    cell.textContent = "暂无记录，可导入音频或视频文件";
     return;
   }
   for (const [index, record] of records.entries()) {
@@ -288,9 +288,9 @@ async function perform(method, record) {
     } finally { confirmingDeletion = false; }
     if (!confirmed || busy) return;
     const current = rows.get(record.id)?.record;
-    if (!current) { showToast("这条音频已不在列表中。"); return; }
+    if (!current) { showToast("这条记录已不在列表中。"); return; }
     if (["transcribing", "cancelling", "resolving", "downloading", "importing"].includes(current.transcription_status)) {
-      showToast("音频正在处理，请先取消任务，待取消完成后再删除。");
+      showToast("文件正在处理，请先取消任务，待取消完成后再删除。");
       return;
     }
     record = current;

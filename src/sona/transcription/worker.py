@@ -186,7 +186,7 @@ def run_worker(send, audio_path, model_path, lock_path, engine, force_cpu=False,
                    'error': f'{type(error).__name__}: {error}'})
     except Exception as error:
         logger.exception('识别执行失败 engine=%s', engine)
-        send.send({'kind': 'error', 'detail': '转录失败，请检查音频和模型后重试。',
+        send.send({'kind': 'error', 'detail': '转录失败，请检查文件中的音轨和模型后重试。',
                    'error': f'{type(error).__name__}: {error}'})
     finally:
         logger.info('识别进程结束 elapsed=%.2fs', time.monotonic() - started)

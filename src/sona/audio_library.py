@@ -15,11 +15,13 @@ from .file_lock import FileLocked, exclusive_file_lock
 
 CHUNK_SIZE = 256 * 1024
 AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".aif", ".aiff", ".wma"}
+VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".wmv", ".flv", ".mpg", ".mpeg"}
+MEDIA_SUFFIXES = AUDIO_SUFFIXES | VIDEO_SUFFIXES
 logger = logging.getLogger(__name__)
 
 
 class AudioLibrary:
-    """Local audio copies and committed history, isolated by the app data directory."""
+    """Local media copies and committed history, isolated by the app data directory."""
 
     def __init__(self, database: Path, directory: Path) -> None:
         self._database = database
@@ -52,8 +54,8 @@ class AudioLibrary:
     def _path(self, record: dict) -> Path:
         # Paths are generated from validated IDs/extensions, never from display names.
         identifier = str(uuid.UUID(record["id"]))
-        if record["suffix"] not in AUDIO_SUFFIXES:
-            raise ValueError("音频格式不受支持。")
+        if record["suffix"] not in MEDIA_SUFFIXES:
+            raise ValueError("音频或视频格式不受支持。")
         return self._directory / f"{identifier}{record['suffix']}"
 
     def _insert(self, record: dict, connection=None) -> None:
@@ -214,10 +216,10 @@ class AudioLibrary:
         if not isinstance(name, str) or not name or len(name) > 255 or any(c in name for c in "\\/\0"):
             raise ValueError("文件名无效。")
         suffix = Path(name).suffix.lower()
-        if suffix not in AUDIO_SUFFIXES:
-            raise ValueError("请选择 MP3、WAV、M4A 等支持的音频文件。")
+        if suffix not in MEDIA_SUFFIXES:
+            raise ValueError("请选择支持的音频或视频文件，例如 MP3、WAV、M4A、MP4、MOV 或 MKV。")
         if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
-            raise ValueError("音频文件不能为空。")
+            raise ValueError("文件不能为空。")
         with self._mutex:
             if self._closed:
                 raise RuntimeError("应用正在关闭。")

@@ -34,12 +34,12 @@
       </aside>
       <main class="content">
         <section class="view import-view" data-panel="upload" aria-label="导入音频">
-          <input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.aif,.aiff,.wma" hidden />
+          <input id="audio-file" type="file" accept=".mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.aif,.aiff,.wma,.mp4,.mov,.mkv,.webm,.avi,.m4v,.wmv,.flv,.mpg,.mpeg" hidden />
           <div class="import-source-grid" id="import-sources">
             <button class="import-source-card drop-zone" type="button" id="drop-zone" data-upload-trigger aria-describedby="local-import-help">
               <span class="source-icon source-icon-local" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 14v2m4-4v6m4-4v2" /></svg></span>
               <strong class="source-name">本地文件</strong>
-              <span class="source-description" id="local-import-help">选择音频文件，或拖放到这里。</span>
+              <span class="source-description" id="local-import-help">选择或拖入音频、视频文件。支持 MP3、MP4、MOV 等格式，视频仅转录声音。</span>
               <span class="source-action">选择文件<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg></span>
             </button>
           </div>
