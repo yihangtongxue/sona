@@ -13,6 +13,16 @@ def main() -> None:
 
         apply_update(sys.argv[2])
         return
+    # Codex and other MCP clients start this stdio bridge; it never opens a window.
+    if len(sys.argv) == 2 and sys.argv[1] == "mcp":
+        from .mcp_bridge import main as run_bridge
+
+        sys.exit(run_bridge())
+    # Release builds verify that the bundled MCP SDK and server actually work.
+    if len(sys.argv) == 2 and sys.argv[1] == "--sona-self-test":
+        from .self_test import main as run_self_test
+
+        sys.exit(run_self_test())
     import logging
 
     from .logging_config import configure_logging

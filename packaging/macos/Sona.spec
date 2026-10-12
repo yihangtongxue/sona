@@ -28,7 +28,13 @@ for package in ("mlx", "mlx_whisper", "litellm", "tiktoken", "tiktoken_ext", "yt
     hiddenimports += package_imports
 datas += collect_data_files("webview")
 hiddenimports += collect_submodules("sona")
-for distribution in ("sona", "pywebview", "keyring", "mlx", "mlx-metal", "mlx-whisper", "litellm", "cryptography", "yt-dlp", "yt-dlp-ejs"):
+# Local MCP server (official SDK) and its ASGI stack use dynamic imports.
+# mcp.cli needs optional extras (typer) that Sona does not ship.
+hiddenimports += collect_submodules("mcp", filter=lambda name: not name.startswith("mcp.cli"))
+for package in ("mcp_types", "uvicorn", "starlette", "sse_starlette", "anyio", "pydantic", "jsonschema", "h11", "multipart", "python_multipart", "httpx2"):
+    hiddenimports += collect_submodules(package)
+datas += collect_data_files("mcp")
+for distribution in ("sona", "pywebview", "keyring", "mlx", "mlx-metal", "mlx-whisper", "litellm", "cryptography", "yt-dlp", "yt-dlp-ejs", "mcp", "uvicorn", "starlette", "pydantic", "pydantic-core", "anyio"):
     datas += copy_metadata(distribution)
 
 a = Analysis([str(root / "packaging/macos/entry.py")], pathex=[str(root / "src")],

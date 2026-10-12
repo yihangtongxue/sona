@@ -9,7 +9,8 @@ const viewer = document.querySelector("#manuscript");
 const title = document.querySelector("#manuscript-title");
 const content = document.querySelector("#manuscript-content");
 const copy = document.querySelector("#manuscript-copy");
-const exportButton = document.querySelector("#manuscript-export");
+const exportButtons = [...document.querySelectorAll("[data-manuscript-export]")];
+const exportLabels = { txt: "导出 TXT", md: "导出 Markdown" };
 const feedback = document.querySelector("#manuscript-feedback");
 const feedbackMessage = document.querySelector("#manuscript-feedback-message");
 const rows = new Map();
@@ -191,20 +192,37 @@ export function openManuscripts() {
 
 document.querySelector("#manuscript-back").addEventListener("click", openManuscripts);
 document.querySelector("#manuscript-reload").addEventListener("click", load);
-exportButton.addEventListener("click", async () => {
+exportButtons.forEach((exportButton) => exportButton.addEventListener("click", async () => {
   if (!current || exportButton.disabled) return;
   const identifier = current.id;
-  exportButton.disabled = true;
+  const format = exportButton.dataset.manuscriptExport;
+  exportButtons.forEach((button) => { button.disabled = true; });
   exportButton.textContent = "正在导出…";
   try {
-    if (await api().export_manuscript(identifier)) showToast("TXT 文稿已保存。", "success");
+    if (await api().export_manuscript(identifier, format)) showToast(`${format === "md" ? "Markdown" : "TXT"} 文稿已保存。`, "success");
   } catch (error) {
     showToast(String(error?.message ?? error), "error");
   } finally {
-    exportButton.disabled = false;
-    exportButton.textContent = "导出 TXT";
+    exportButtons.forEach((button) => { button.disabled = false; });
+    exportButton.textContent = exportLabels[format];
   }
-});
+}));
+
+export async function openManuscript(identifier) {
+  revision += 1;
+  const token = revision;
+  try {
+    const result = await api().get_manuscript(identifier);
+    if (token !== revision || panel.hidden) return;
+    current = result;
+    title.textContent = result.title;
+    content.textContent = result.body;
+    table.hidden = true;
+    viewer.hidden = false;
+    feedback.hidden = true;
+    title.focus();
+  } catch (error) { showToast(String(error?.message ?? error), "error"); }
+}
 copy.addEventListener("click", async () => {
   if (!current) return;
   const text = current.body;

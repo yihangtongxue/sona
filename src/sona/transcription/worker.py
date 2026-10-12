@@ -31,7 +31,7 @@ def _watch_parent(native=False):
         time.sleep(1)
 
 
-def _mlx(audio, model_path, emit):
+def _mlx(audio, model_path, emit, language=None):
     logger.info('加载识别依赖 engine=mlx-whisper')
     import mlx.core as mx
     import mlx_whisper
@@ -42,7 +42,7 @@ def _mlx(audio, model_path, emit):
     started = time.monotonic()
     emit({'kind': 'progress', 'detail': '正在加载模型并转录。', 'device': 'Apple GPU'})
     result = mlx_whisper.transcribe(audio, path_or_hf_repo=str(model_path), verbose=None,
-                                   task='transcribe', language=None, condition_on_previous_text=False)
+                                   task='transcribe', language=language, condition_on_previous_text=False)
     segments = [{'start': float(s['start']), 'end': float(s['end']), 'text': s['text']}
                 for s in result['segments']]
     logger.info('转录完成 language=%s segments=%d elapsed=%.2fs',
@@ -51,7 +51,8 @@ def _mlx(audio, model_path, emit):
             'language': result['language'], 'duration': len(audio) / 16000, 'device': 'Apple GPU'}
 
 
-def run_worker(send, audio_path, model_path, lock_path, engine, task_id='-', locale='zh-CN', work_dir=None):
+def run_worker(send, audio_path, model_path, lock_path, engine, task_id='-', locale='zh-CN', work_dir=None,
+               language=None):
     native = engine == 'apple-speech' and sys.platform == 'darwin'
     if native:
         # The supervisor can cancel Python, xcrun/Swift and the native helper
@@ -59,7 +60,7 @@ def run_worker(send, audio_path, model_path, lock_path, engine, task_id='-', loc
         os.setsid()
     configure_logging(task_id)
     started = time.monotonic()
-    logger.info('识别进程启动 engine=%s', engine)
+    logger.info('识别进程启动 engine=%s language=%s', engine, language or 'auto')
     threading.Thread(target=_watch_parent, args=(native,), daemon=True).start()
     # Model resolution must be local; import/download is exclusively managed by
     # the resource UI, never implicitly triggered by an inference library.
@@ -83,7 +84,7 @@ def run_worker(send, audio_path, model_path, lock_path, engine, task_id='-', loc
                 send.send({'kind': 'unavailable'})
                 return
             send.send({'kind': 'progress', 'detail': '正在读取音频。'})
-            result = _transcribe_chunks(Path(audio_path), Path(model_path), send.send)
+            result = _transcribe_chunks(Path(audio_path), Path(model_path), send.send, language)
             send.send({'kind': 'result', 'result': result})
             logger.info('转录结果已发送给主进程')
     except FileLocked:
@@ -102,13 +103,13 @@ def run_worker(send, audio_path, model_path, lock_path, engine, task_id='-', loc
         send.close()
 
 
-def _transcribe_chunks(audio_path, model_path, emit):
+def _transcribe_chunks(audio_path, model_path, emit, language=None):
     merged = ChunkResults()
     with closing(audio_chunks(audio_path, emit)) as chunks:
         for index, audio in enumerate(chunks, 1):
             started = time.monotonic()
             report = merged.progress(emit, index)
-            result = _mlx(audio, model_path, report)
+            result = _mlx(audio, model_path, report, language)
             merged.append(result, len(audio))
             logger.info('音频分段完成 index=%d samples=%d elapsed=%.2fs',
                         index, len(audio), time.monotonic() - started)

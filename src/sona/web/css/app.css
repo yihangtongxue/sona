@@ -405,3 +405,17 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
   .transcript-toolbar { align-items: flex-start; flex-direction: column; }
   .transcript-content p { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
+
+.library-search { margin-bottom: 14px; }
+.library-search-form { display: flex; gap: 8px; align-items: center; }
+.library-search-form input { flex: 1 1 auto; min-width: 0; padding: 8px 12px; border: 1px solid var(--line, rgba(127,127,127,.35)); border-radius: 8px; background: transparent; color: inherit; font: inherit; }
+.search-results { margin-top: 10px; display: grid; gap: 6px; }
+.search-result { display: block; width: 100%; text-align: left; padding: 10px 12px; border: 1px solid var(--line, rgba(127,127,127,.25)); border-radius: 8px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.search-result:hover, .search-result:focus-visible { border-color: currentColor; }
+.search-result strong { display: block; font-size: .9375rem; }
+.search-result span { display: block; margin-top: 4px; font-size: .8125rem; line-height: 1.5; opacity: .75; overflow-wrap: anywhere; }
+.search-empty { font-size: .875rem; opacity: .75; }
+.mcp-status { margin-top: 12px; font-size: .9375rem; }
+.mcp-help, .mcp-warning { margin-top: 8px; font-size: .8125rem; line-height: 1.55; opacity: .8; }
+.mcp-warning { color: #c2410c; opacity: 1; }
+.mcp-snippet { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: rgba(127,127,127,.12); font-size: .75rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }

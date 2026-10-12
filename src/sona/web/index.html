@@ -50,6 +50,14 @@
           </div>
         </section>
         <section class="view" data-panel="library" aria-label="我的音频" hidden>
+          <div class="library-search" id="library-search">
+            <form class="library-search-form" id="library-search-form" role="search">
+              <input type="search" id="library-search-input" placeholder="搜索转录、字幕和文稿全文" aria-label="全文搜索" maxlength="200" autocomplete="off" />
+              <button type="submit" class="secondary-button">搜索</button>
+              <button type="button" class="secondary-button" id="library-search-clear" hidden>清除</button>
+            </form>
+            <div class="search-results" id="search-results" aria-live="polite" hidden></div>
+          </div>
           <div class="audio-table-wrap" id="audio-table-region" role="region" aria-label="音频列表" tabindex="0">
             <table class="audio-table" aria-label="历史音频">
               <thead><tr><th scope="col">名称</th><th scope="col" class="audio-size">大小</th><th scope="col">导入时间</th><th scope="col">状态</th><th scope="col" class="audio-operations">操作</th></tr></thead>
@@ -61,7 +69,9 @@
               <button type="button" class="secondary-button" id="transcript-back">返回列表</button>
               <div class="transcript-actions">
                 <button type="button" class="secondary-button" id="transcript-copy">复制全文</button>
-                <button type="button" class="secondary-button" id="transcript-export" aria-haspopup="dialog">导出 TXT</button>
+                <button type="button" class="secondary-button" data-transcript-export="txt" aria-haspopup="dialog">导出 TXT</button>
+                <button type="button" class="secondary-button" data-transcript-export="srt" aria-haspopup="dialog">导出 SRT</button>
+                <button type="button" class="secondary-button" data-transcript-export="md" aria-haspopup="dialog">导出 Markdown</button>
                 <button type="button" class="secondary-button" id="transcript-optimize" title="使用默认 AI 模型整理；正文会发送到该模型的接口，可能产生费用">优化转录</button>
               </div>
             </div>
@@ -86,7 +96,8 @@
               <button type="button" class="secondary-button" id="manuscript-back">返回列表</button>
               <div class="transcript-actions">
                 <button type="button" class="secondary-button" id="manuscript-copy">复制全文</button>
-                <button type="button" class="secondary-button" id="manuscript-export" aria-haspopup="dialog">导出 TXT</button>
+                <button type="button" class="secondary-button" data-manuscript-export="txt" aria-haspopup="dialog">导出 TXT</button>
+                <button type="button" class="secondary-button" data-manuscript-export="md" aria-haspopup="dialog">导出 Markdown</button>
               </div>
             </div>
             <div class="manuscript-reading">
@@ -135,6 +146,57 @@
                 <p id="models-feedback-message" role="status"></p>
                 <button class="secondary-button" id="models-reconnect" type="button">重新连接</button>
               </div>
+            </section>
+            <section class="settings-group" aria-labelledby="language-title">
+              <div class="group-heading"><h2 id="language-title">识别语言</h2></div>
+              <div class="appearance-row">
+                <div class="appearance-info">
+                  <label id="language-label" for="language-picker">Whisper 识别语言</label>
+                  <p id="language-description">默认自动识别。语音语言固定时手动指定可提高准确率；Apple Speech 始终识别中文。</p>
+                </div>
+                <div class="custom-select appearance-select" id="language-select">
+                  <button class="select-trigger" id="language-picker" data-select-trigger type="button" role="combobox" aria-labelledby="language-label" aria-describedby="language-description" aria-haspopup="listbox" aria-controls="language-options" aria-expanded="false" disabled>
+                    <span data-select-value>自动识别</span>
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+                  </button>
+                  <div class="select-menu" id="language-options" data-select-menu role="listbox" aria-labelledby="language-label" hidden>
+                    <div class="select-option" id="language-auto" data-select-option="auto" role="option" aria-selected="true">自动识别</div>
+                    <div class="select-option" id="language-zh" data-select-option="zh" role="option" aria-selected="false">中文</div>
+                    <div class="select-option" id="language-yue" data-select-option="yue" role="option" aria-selected="false">粤语</div>
+                    <div class="select-option" id="language-en" data-select-option="en" role="option" aria-selected="false">英语</div>
+                    <div class="select-option" id="language-ja" data-select-option="ja" role="option" aria-selected="false">日语</div>
+                    <div class="select-option" id="language-ko" data-select-option="ko" role="option" aria-selected="false">韩语</div>
+                    <div class="select-option" id="language-fr" data-select-option="fr" role="option" aria-selected="false">法语</div>
+                    <div class="select-option" id="language-de" data-select-option="de" role="option" aria-selected="false">德语</div>
+                    <div class="select-option" id="language-es" data-select-option="es" role="option" aria-selected="false">西班牙语</div>
+                    <div class="select-option" id="language-pt" data-select-option="pt" role="option" aria-selected="false">葡萄牙语</div>
+                    <div class="select-option" id="language-it" data-select-option="it" role="option" aria-selected="false">意大利语</div>
+                    <div class="select-option" id="language-ru" data-select-option="ru" role="option" aria-selected="false">俄语</div>
+                    <div class="select-option" id="language-uk" data-select-option="uk" role="option" aria-selected="false">乌克兰语</div>
+                    <div class="select-option" id="language-ar" data-select-option="ar" role="option" aria-selected="false">阿拉伯语</div>
+                    <div class="select-option" id="language-hi" data-select-option="hi" role="option" aria-selected="false">印地语</div>
+                    <div class="select-option" id="language-vi" data-select-option="vi" role="option" aria-selected="false">越南语</div>
+                    <div class="select-option" id="language-th" data-select-option="th" role="option" aria-selected="false">泰语</div>
+                    <div class="select-option" id="language-id" data-select-option="id" role="option" aria-selected="false">印尼语</div>
+                    <div class="select-option" id="language-ms" data-select-option="ms" role="option" aria-selected="false">马来语</div>
+                    <div class="select-option" id="language-tr" data-select-option="tr" role="option" aria-selected="false">土耳其语</div>
+                    <div class="select-option" id="language-nl" data-select-option="nl" role="option" aria-selected="false">荷兰语</div>
+                    <div class="select-option" id="language-pl" data-select-option="pl" role="option" aria-selected="false">波兰语</div>
+                    <div class="select-option" id="language-sv" data-select-option="sv" role="option" aria-selected="false">瑞典语</div>
+                  </div>
+                </div>
+              </div>
+              <p class="appearance-feedback" id="language-feedback" role="status" hidden></p>
+            </section>
+            <section class="settings-group" aria-labelledby="mcp-title">
+              <div class="group-heading">
+                <h2 id="mcp-title">AI 工具连接（MCP）</h2>
+                <button class="secondary-button" id="copy-codex-config" type="button" disabled>复制 Codex 配置</button>
+              </div>
+              <p class="mcp-status" id="mcp-status" role="status">正在读取 MCP 状态…</p>
+              <p class="mcp-help">点击“复制 Codex 配置”，粘贴到 <code>~/.codex/config.toml</code> 末尾并重启 Codex（桌面版、CLI 和 IDE 扩展共用该文件）。配置不包含访问令牌；Sona 未打开时会被自动启动。</p>
+              <p class="mcp-warning" id="mcp-warning" hidden></p>
+              <pre class="mcp-snippet" id="mcp-snippet" hidden></pre>
             </section>
             <section class="settings-group" aria-labelledby="ai-model-title">
               <div class="group-heading">

@@ -7,6 +7,8 @@ from .audio_library import AudioLibrary
 from .ai_model_service import AIModelService
 from .model_service import ModelService
 from .activity import ActivityGate
+from .languages import language_options
+from .manuscript_export import normalize_format
 
 
 logger = logging.getLogger(__name__)
@@ -19,7 +21,7 @@ def log_api_call(function):
         method = function.__name__
         quiet = method == 'append_audio_chunk'
         # Never log upload bytes, file display names, or returned transcript text.
-        reference = args[0] if args and method not in {'begin_audio_import', 'import_podcast'} else '-'
+        reference = args[0] if args and method not in {'begin_audio_import', 'import_podcast', 'search'} else '-'
         if not quiet:
             logger.info('调用 %s ref=%s', method, reference)
         try:
@@ -45,7 +47,8 @@ class AppApi:
     def __init__(self, model_service: ModelService, audio_library: AudioLibrary, transcription,
                  ai_model_service: AIModelService | None = None,
                  manuscripts=None, updates=None, activity=None, consent=None, diagnostics=None,
-                 podcasts=None, appearance=None, manuscript_export=None, transcription_export=None) -> None:
+                 podcasts=None, appearance=None, manuscript_export=None, transcription_export=None,
+                 transcription_settings=None, mcp=None, codex_config=None, search=None) -> None:
         self._model_service = model_service
         self._audio_library = audio_library
         self._transcription = transcription
@@ -59,6 +62,10 @@ class AppApi:
         self._appearance = appearance
         self._manuscript_export = manuscript_export
         self._transcription_export = transcription_export
+        self._transcription_settings = transcription_settings
+        self._mcp = mcp
+        self._codex_config = codex_config
+        self._search = search
 
     def get_theme(self) -> str:
         return self._appearance.get_theme()
@@ -105,9 +112,14 @@ class AppApi:
         return self._manuscripts.repository.result(identifier)
 
     @log_api_call
-    def export_manuscript(self, identifier: str) -> bool:
+    def export_manuscript(self, identifier: str, export_format: str = "txt") -> bool:
+        export_format = normalize_format(export_format)
+        if export_format == "srt":
+            raise ValueError("文稿没有时间轴，请导出 TXT 或 Markdown。")
         manuscript = self._manuscripts.repository.result(identifier)
-        return self._manuscript_export(manuscript)
+        if export_format == "txt":
+            return self._manuscript_export(manuscript)
+        return self._manuscript_export(manuscript, export_format)
 
     @log_api_call
     def retry_manuscript(self, identifier: str, confirmed: bool = False) -> None:
@@ -162,9 +174,27 @@ class AppApi:
         return self._transcription.repository.result(identifier)
 
     @log_api_call
-    def export_transcription(self, identifier: str) -> bool:
+    def export_transcription(self, identifier: str, export_format: str = "txt") -> bool:
+        export_format = normalize_format(export_format)
         result = self._transcription.repository.result(identifier)
-        return self._transcription_export(result)
+        if export_format == "txt":
+            return self._transcription_export(result)
+        return self._transcription_export(result, export_format)
+
+    def get_transcription_language(self) -> dict:
+        return {"language": self._transcription_settings.get_language(), "options": language_options()}
+
+    @log_api_call
+    def set_transcription_language(self, language: str) -> str:
+        return self._transcription_settings.set_language(language)
+
+    @log_api_call
+    def search(self, query: str) -> list[dict]:
+        return self._search(query)
+
+    def mcp_status(self) -> dict:
+        status = self._mcp.status() if self._mcp is not None else {"running": False, "error": "MCP 服务未初始化"}
+        return {**status, "codex": self._codex_config() if self._codex_config else None}
 
     def list_audio(self) -> list[dict]:
         return self._audio_library.list_files()

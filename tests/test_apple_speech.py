@@ -95,8 +95,9 @@ class AppleRoutingTests(unittest.TestCase):
             service.repository.claim.return_value = task
             scratch = []
 
-            def execute(claimed, source, model_path, locale, work_dir):
+            def execute(claimed, source, model_path, locale, work_dir, language=None):
                 self.assertEqual(claimed['engine'], 'apple-speech')
+                self.assertIsNone(language)  # Whisper language override never reaches Apple Speech.
                 self.assertIsNone(model_path)
                 self.assertEqual(locale, 'zh-CN')
                 self.assertTrue(Path(work_dir).is_dir())

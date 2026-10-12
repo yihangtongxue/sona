@@ -1,7 +1,10 @@
 import { openModelSettings } from "./models.js";
 import { openAIModelSettings } from "./ai-models.js";
-import { importAudio, openAudioLibrary, locateAudio } from "./library.js";
-import { openManuscripts } from "./manuscripts.js";
+import { importAudio, openAudioLibrary, locateAudio, openTranscript } from "./library.js";
+import { openManuscripts, openManuscript } from "./manuscripts.js";
+import { openLanguageSettings } from "./language-settings.js";
+import { openMCPSettings } from "./mcp-settings.js";
+import "./search.js";
 import { showToast } from "./toast.js";
 import { openAbout } from "./updates.js";
 import { initializeImportSources } from "./import-sources.js";
@@ -38,6 +41,8 @@ function showView(viewName) {
   });
   if (viewName === "settings") {
     openAppearanceSettings();
+    openLanguageSettings();
+    openMCPSettings();
     openModelSettings();
     openAIModelSettings();
     openAbout();
@@ -142,3 +147,14 @@ dropZone.addEventListener("drop", (event) => {
     dropZone.classList.remove("is-dragging");
   }
 }));
+
+window.addEventListener("sona:open-result", async (event) => {
+  const item = event.detail;
+  if (item.kind === "manuscript") {
+    showView("manuscripts");
+    await openManuscript(item.id);
+  } else {
+    showView("library");
+    await openTranscript(item.id);
+  }
+});

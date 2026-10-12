@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .models import ModelDefinition, ModelEvent
+from .search import ensure_index
 
 
 # Legacy databases may retain user_version up to 5, even after version tracking
@@ -13,7 +14,8 @@ from .models import ModelDefinition, ModelEvent
 # acquisition table. Version 8 adds Bilibili and canonical link aliases.
 # Version 9 adds YouTube options and text-only subtitle results.
 # Version 10 saves manuscript progress after every completed chunk.
-SCHEMA_VERSION = 10
+# Version 11 adds per-task Whisper languages and the full-text search index.
+SCHEMA_VERSION = 11
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS models (
             id TEXT PRIMARY KEY,
@@ -150,6 +152,18 @@ SCHEMA = (
             import_id TEXT NOT NULL REFERENCES podcast_imports(id) ON DELETE CASCADE,
             PRIMARY KEY(platform, source_id)
         )""",
+    """CREATE TABLE IF NOT EXISTS media_languages (
+            id TEXT PRIMARY KEY,
+            language TEXT NOT NULL
+        )""",
+    """CREATE TRIGGER IF NOT EXISTS media_language_audio_cleanup AFTER DELETE ON audio_files BEGIN
+            DELETE FROM media_languages WHERE id=OLD.id
+                AND NOT EXISTS(SELECT 1 FROM podcast_imports WHERE id=OLD.id);
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS media_language_import_cleanup AFTER DELETE ON podcast_imports BEGIN
+            DELETE FROM media_languages WHERE id=OLD.id
+                AND NOT EXISTS(SELECT 1 FROM audio_files WHERE id=OLD.id);
+        END""",
     """CREATE TABLE IF NOT EXISTS subtitle_results (
             import_id TEXT PRIMARY KEY REFERENCES podcast_imports(id) ON DELETE CASCADE,
             text TEXT NOT NULL,
@@ -172,6 +186,10 @@ def migrate_media_imports(connection):
     if aliases:
         connection.execute('CREATE TEMP TABLE saved_media_aliases AS SELECT * FROM media_import_aliases')
         connection.execute('DROP TABLE media_import_aliases')
+    # Triggers that reference podcast_imports block the rename; they are recreated afterwards.
+    for trigger in ('media_language_audio_cleanup', 'media_language_import_cleanup',
+                    'search_subtitle_insert', 'search_subtitle_update'):
+        connection.execute(f'DROP TRIGGER IF EXISTS {trigger}')
     columns = ','.join(row[1] for row in connection.execute('PRAGMA table_info(podcast_imports)'))
     statement = next(item for item in SCHEMA if item.startswith('CREATE TABLE IF NOT EXISTS podcast_imports ('))
     connection.execute(statement.replace('podcast_imports (', 'podcast_imports_v9 (', 1))
@@ -208,6 +226,7 @@ class ModelRepository:
             for statement in SCHEMA:
                 connection.execute(statement)
             migrate_manuscript_progress(connection)
+            ensure_index(connection)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             for model in models:
                 connection.execute(

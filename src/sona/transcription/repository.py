@@ -45,6 +45,20 @@ class TaskRepository:
                 WHERE t.status IN ('queued','waiting_model') ORDER BY t.created_at, t.audio_id""").fetchall()
         return [dict(row) for row in rows]
 
+    def set_language(self, identifier, language):
+        """Store a per-task Whisper language; ``auto`` removes the override."""
+        with self.connection() as db:
+            if language == 'auto':
+                db.execute('DELETE FROM media_languages WHERE id=?', (identifier,))
+            else:
+                db.execute('INSERT OR REPLACE INTO media_languages(id, language) VALUES (?, ?)',
+                           (identifier, language))
+
+    def language(self, identifier):
+        with self.connection() as db:
+            row = db.execute('SELECT language FROM media_languages WHERE id=?', (identifier,)).fetchone()
+        return row['language'] if row else None
+
     def wait_for_model(self, identifier, detail):
         with self.connection() as db:
             changed = db.execute("""UPDATE transcription_tasks SET status='waiting_model', detail=?

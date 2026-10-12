@@ -13,7 +13,10 @@ const transcript = document.querySelector("#transcript");
 const transcriptTitle = document.querySelector("#transcript-title");
 const transcriptContent = document.querySelector("#transcript-content");
 const copyButton = document.querySelector("#transcript-copy");
-const exportButton = document.querySelector("#transcript-export");
+const exportButtons = [...document.querySelectorAll("[data-transcript-export]")];
+const searchArea = document.querySelector("#library-search");
+const exportLabels = { txt: "导出 TXT", srt: "导出 SRT", md: "导出 Markdown" };
+const exportNames = { txt: "TXT", srt: "SRT 字幕", md: "Markdown" };
 const optimizeButton = document.querySelector("#transcript-optimize");
 const taskDialog = document.querySelector("#task-detail-dialog");
 const taskDialogName = document.querySelector("#task-detail-name");
@@ -339,13 +342,14 @@ function showResult(result) {
   const token = resultRequest;
   clearTimeout(timer);
   tableRegion.hidden = true;
+  searchArea.hidden = true;
   transcript.hidden = false;
   transcriptTitle.textContent = result.name;
   const source = document.querySelector("#transcript-source");
   source.hidden = false;
   source.textContent = [sourceLabels[result.source_kind] ?? "本地转录", result.language].filter(Boolean).join(" · ");
   copyButton.disabled = !result.text;
-  exportButton.disabled = exportingTranscript || !result.text?.trim();
+  exportButtons.forEach((button) => { button.disabled = exportingTranscript || !result.text?.trim(); });
   optimizeButton.disabled = creatingManuscript || !result.text?.trim();
   transcriptContent.replaceChildren();
   if (!result.segments.length) {
@@ -388,26 +392,37 @@ export function openAudioLibrary() {
   currentResult = null;
   transcript.hidden = true;
   tableRegion.hidden = false;
+  searchArea.hidden = false;
   return loadLibrary();
 }
 
+export async function openTranscript(identifier) {
+  resultRequest += 1;
+  const token = resultRequest;
+  try {
+    const value = await enqueue(() => api().get_transcription(identifier));
+    if (token === resultRequest && !panel.hidden) showResult(value);
+  } catch (error) { showToast(String(error?.message ?? error), "error"); }
+}
+
 document.querySelector("#transcript-back").addEventListener("click", openAudioLibrary);
-exportButton.addEventListener("click", async () => {
+exportButtons.forEach((exportButton) => exportButton.addEventListener("click", async () => {
   if (exportingTranscript || !currentResult?.text?.trim()) return;
   const identifier = currentResult.audio_id;
+  const format = exportButton.dataset.transcriptExport;
   exportingTranscript = true;
-  exportButton.disabled = true;
+  exportButtons.forEach((button) => { button.disabled = true; });
   exportButton.textContent = "正在导出…";
   try {
-    if (await api().export_transcription(identifier)) showToast("原始转录 TXT 已保存。", "success");
+    if (await api().export_transcription(identifier, format)) showToast(`原始转录 ${exportNames[format]} 已保存。`, "success");
   } catch (error) {
     showToast(String(error?.message ?? error), "error");
   } finally {
     exportingTranscript = false;
-    exportButton.disabled = !currentResult?.text?.trim();
-    exportButton.textContent = "导出 TXT";
+    exportButtons.forEach((button) => { button.disabled = !currentResult?.text?.trim(); });
+    exportButton.textContent = exportLabels[format];
   }
-});
+}));
 optimizeButton.addEventListener("click", async () => {
   if (creatingManuscript || !currentResult?.text?.trim()) return;
   const result = currentResult;

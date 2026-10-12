@@ -66,6 +66,8 @@ def main():
     # publisher authentication. Do not touch Gatekeeper/quarantine settings.
     run(["/usr/bin/codesign", "--force", "--deep", "--sign", "-", "--identifier", BUNDLE_ID, app])
     run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app])
+    # The bundled MCP SDK, HTTP server and stdio bridge must work in the frozen app.
+    run([app / "Contents/MacOS/Sona", "--sona-self-test"], cwd=stage)
     published_app = destination / "Sona.app"
     shutil.copytree(app, published_app, symlinks=True)
     archive = destination / f"Sona-{VERSION}-macos-arm64.zip"
