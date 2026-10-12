@@ -83,11 +83,11 @@ BUILTIN_MODELS = (
 
 
 def transcription_engine() -> str:
-    return "mlx-whisper" if sys.platform == "darwin" else "faster-whisper"
+    return "mlx-whisper"
 
 
 def engine_supported() -> bool:
-    return sys.platform != "darwin" or platform.machine().lower() == "arm64"
+    return sys.platform == "darwin" and platform.machine().lower() == "arm64"
 
 
 # Keep stable model IDs and legacy checkpoint metadata for migration; new

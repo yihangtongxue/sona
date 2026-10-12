@@ -1,6 +1,5 @@
 """Local temporary files and fake legacy keyring only; run manually."""
 
-import os
 import stat
 import tempfile
 import unittest
@@ -29,10 +28,8 @@ class LocalCredentialTests(unittest.TestCase):
         self.assertEqual(restarted.read(self.reference), secret)
         for path in self.store.directory.iterdir():
             self.assertNotIn(secret.encode(), path.read_bytes())
-            if os.name != "nt":
-                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-        if os.name != "nt":
-            self.assertEqual(stat.S_IMODE(self.store.directory.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(self.store.directory.stat().st_mode), 0o700)
 
     def test_ciphertexts_cannot_be_tampered_with_or_swapped(self):
         other = LOCAL_KEY_PREFIX + str(uuid.uuid4())
@@ -92,7 +89,6 @@ class LocalCredentialTests(unittest.TestCase):
             self.store.save("../../outside", "fake-key")
         self.assertFalse((self.root / "outside").exists())
 
-    @unittest.skipIf(os.name == "nt", "Windows symlink creation requires additional privileges")
     def test_master_and_directory_symlinks_are_rejected(self):
         target = self.root / "outside"
         target.write_bytes(b"unchanged")

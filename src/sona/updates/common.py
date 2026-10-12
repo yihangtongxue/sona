@@ -9,35 +9,11 @@ from .signatures import verify_archive
 
 
 def process_running(pid):
-    if os.name != "nt":
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        return True
-    # os.kill(pid, 0) is not a Windows liveness probe: it can terminate a process.
-    import ctypes
-    from ctypes import wintypes
-
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-    kernel.OpenProcess.restype = wintypes.HANDLE
-    kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    kernel.WaitForSingleObject.restype = wintypes.DWORD
-    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
-    kernel.CloseHandle.restype = wintypes.BOOL
-    handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE only
-    if not handle:
-        if ctypes.get_last_error() == 87:  # ERROR_INVALID_PARAMETER: no such PID
-            return False
-        raise OSError("无法检查应用进程状态。")
     try:
-        result = kernel.WaitForSingleObject(handle, 0)
-        if result not in (0, 258):
-            raise OSError("无法等待应用进程退出。")
-        return result == 258  # WAIT_TIMEOUT
-    finally:
-        kernel.CloseHandle(handle)
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def read_job_json(path: Path):

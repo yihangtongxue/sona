@@ -1,5 +1,4 @@
 import logging
-import sys
 import time
 from functools import wraps
 from inspect import signature
@@ -44,14 +43,12 @@ class AppApi:
     """Methods exposed to the desktop webview."""
 
     def __init__(self, model_service: ModelService, audio_library: AudioLibrary, transcription,
-                 acceleration=None, ai_model_service: AIModelService | None = None,
+                 ai_model_service: AIModelService | None = None,
                  manuscripts=None, updates=None, activity=None, consent=None, diagnostics=None,
-                 podcasts=None, appearance=None, manuscript_export=None, transcription_export=None,
-                 window_settings=None) -> None:
+                 podcasts=None, appearance=None, manuscript_export=None, transcription_export=None) -> None:
         self._model_service = model_service
         self._audio_library = audio_library
         self._transcription = transcription
-        self._acceleration = acceleration
         self._ai_models = ai_model_service
         self._manuscripts = manuscripts
         self._updates = updates
@@ -62,16 +59,6 @@ class AppApi:
         self._appearance = appearance
         self._manuscript_export = manuscript_export
         self._transcription_export = transcription_export
-        self._window_settings = window_settings
-
-    def get_window_settings(self) -> dict:
-        return {"supported": sys.platform == "win32", "close_action": self._window_settings.get_close_action()}
-
-    @log_api_call
-    def set_close_action(self, action: str) -> str:
-        if sys.platform != "win32":
-            raise ValueError("此设置仅适用于 Windows。")
-        return self._window_settings.set_close_action(action)
 
     def get_theme(self) -> str:
         return self._appearance.get_theme()
@@ -161,13 +148,6 @@ class AppApi:
     @log_api_call
     def delete_ai_model(self, identifier: str) -> list[dict[str, object]]:
         return self._ai_models.delete_model(identifier)
-
-    def acceleration_status(self) -> dict:
-        return self._acceleration.status()
-
-    @log_api_call
-    def acceleration_action(self, action: str) -> dict:
-        return self._acceleration.action(action)
 
     @log_api_call
     def cancel_transcription(self, identifier: str) -> None:

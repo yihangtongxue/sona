@@ -79,7 +79,7 @@ class ReleasePipelineTests(unittest.TestCase):
         return ""
 
     def test_missing_platform_stops_manifest_creation(self):
-        (self.directory / f"Sona-{github_release.VERSION}-windows-x64.zip").unlink()
+        (self.directory / f"Sona-{github_release.VERSION}-macos-arm64.zip").unlink()
         with self.assertRaisesRegex(ValueError, "不齐全"):
             github_release.prepare(self.directory)
         self.assertFalse((self.directory / "stable.json").exists())

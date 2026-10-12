@@ -9,7 +9,6 @@ import webview
 
 from .api import AppApi
 from .ai_model_service import AIModelService
-from .acceleration.service import AccelerationService
 from .audio_library import AudioLibrary
 from .database import ModelRepository
 from .model_service import ModelService
@@ -30,7 +29,6 @@ from .podcasts.service import PodcastService
 from .localization import WEBVIEW_ZH
 from .window_chrome import configure_window_chrome
 from .appearance import AppearanceSettings
-from .window_settings import WindowSettings
 from .window_lifecycle import ServiceShutdown, WindowLifecycle
 
 
@@ -54,7 +52,6 @@ def _run_app(paths) -> None:
                 transcription_engine(), paths.data_dir)
     repository = ModelRepository(paths.database, BUILTIN_MODELS)
     appearance = AppearanceSettings(paths.data_dir)
-    window_settings = WindowSettings(paths.data_dir)
     audio_library = AudioLibrary(paths.database, paths.audio_dir)
     whisper_provider = WhisperBundleProvider(paths.models_dir, paths.downloads_dir)
     apple_provider = AppleSpeechProvider()
@@ -63,16 +60,15 @@ def _run_app(paths) -> None:
         "whisper": whisper_provider,
     }, BUILTIN_MODELS)
     ai_model_service = AIModelService(paths.database)
-    acceleration = AccelerationService(paths)
     activity = ActivityGate()
-    transcription = TranscriptionService(paths, whisper_provider, BUILTIN_MODELS, acceleration,
+    transcription = TranscriptionService(paths, whisper_provider, BUILTIN_MODELS,
                                          apple_provider=apple_provider, audio_library=audio_library, activity=activity)
     manuscripts = ManuscriptService(paths.database, ai_model_service, activity=activity)
     podcasts = PodcastService(paths, audio_library, activity)
     updates = UpdateService(paths, activity, other_busy=lambda: audio_library.is_importing()
                             or any(record.get('active') for record in model_service.list_models()))
     shutdown = ServiceShutdown(updates, podcasts, manuscripts, transcription,
-                               acceleration, audio_library, model_service)
+                               audio_library, model_service)
 
     def export_diagnostics():
         selected = window.create_file_dialog(webview.FileDialog.SAVE,
@@ -105,21 +101,16 @@ def _run_app(paths) -> None:
             "Sona", str(web_root / "index.html"),
             width=960, height=640, min_size=(720, 480),
             background_color="#141414" if appearance.get_theme() == "dark" else "#f9f9f9",
-            js_api=AppApi(model_service, audio_library, transcription, acceleration, ai_model_service,
+            js_api=AppApi(model_service, audio_library, transcription, ai_model_service,
                           manuscripts, updates, activity, consent=AIUsageConsent(paths.data_dir),
                           diagnostics=export_diagnostics, podcasts=podcasts, appearance=appearance,
-                          manuscript_export=export_manuscript, transcription_export=export_transcription,
-                          window_settings=window_settings),
+                          manuscript_export=export_manuscript, transcription_export=export_transcription),
         )
         configure_window_chrome(window, appearance)
-        lifecycle = WindowLifecycle(window, window_settings, shutdown)
+        lifecycle = WindowLifecycle(window, shutdown)
         updates.bind_window(lifecycle.request_quit)
         updates.start_automatic_checks()
-        # pywebview's Windows backend requires an .ico file; passing the macOS
-        # .icns asset makes System.Drawing fail before the window is shown.
         start_options: dict[str, object] = {"http_server": True, "localization": WEBVIEW_ZH}
-        if sys.platform == "win32":
-            start_options["gui"] = "edgechromium"
         if sys.platform == "darwin" and icon_path.is_file():
             start_options["icon"] = str(icon_path)
         webview.start(**start_options)

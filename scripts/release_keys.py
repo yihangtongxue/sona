@@ -67,7 +67,7 @@ def sign(args):
             raise ValueError("请在 release 环境配置更新私钥和密码两个 GitHub Secrets。")
     else:
         private_path = args.private_key.expanduser().resolve()
-        if os.name != "nt" and private_path.stat().st_mode & 0o077:
+        if private_path.stat().st_mode & 0o077:
             raise ValueError("私钥权限过宽，请先设置为仅当前用户可读写（600）。")
         with private_path.open("rb") as stream:
             pem = stream.read(16385)

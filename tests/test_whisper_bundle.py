@@ -13,6 +13,10 @@ class WhisperBundleTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        # Bundles only run on Apple silicon; exercise the file logic on any host.
+        supported = patch('sona.providers.whisper_bundle.engine_supported', return_value=True)
+        supported.start()
+        self.addCleanup(supported.stop)
         root = Path(self.temp.name)
         self.provider = WhisperBundleProvider(root / 'models', root / 'downloads')
         self.addCleanup(self.provider.close)

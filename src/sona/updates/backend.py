@@ -1,10 +1,5 @@
-"""Select only the current platform's application replacement implementation."""
+"""macOS application replacement implementation."""
 
-import sys
+from .macos import apply_update, extract_app, installed_bundle, prepare_runner, signing_requirement, validate_app
 
-if sys.platform == "win32":
-    from .windows import apply_update, extract_app, installed_bundle, prepare_runner, signing_requirement, validate_app
-    APP_DIRECTORY = "Sona"
-else:
-    from .macos import apply_update, extract_app, installed_bundle, prepare_runner, signing_requirement, validate_app
-    APP_DIRECTORY = "Sona.app"
+APP_DIRECTORY = "Sona.app"

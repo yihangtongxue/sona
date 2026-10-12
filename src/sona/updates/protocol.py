@@ -35,7 +35,7 @@ class UpdateError(ValueError):
 def current_target():
     machine = platform.machine().lower()
     architecture = {"amd64": "x64", "x86_64": "x64", "aarch64": "arm64"}.get(machine, machine)
-    return {"darwin": "macos", "win32": "windows"}.get(sys.platform, sys.platform), architecture
+    return "macos" if sys.platform == "darwin" else sys.platform, architecture
 
 
 def version_tuple(value):

@@ -32,9 +32,8 @@ class ServiceShutdown:
 
 
 class WindowLifecycle:
-    def __init__(self, window, settings, shutdown):
+    def __init__(self, window, shutdown):
         self.window = window
-        self.settings = settings
         self.shutdown = shutdown
         self.native = None
         window.events.before_show += self.attach
@@ -45,10 +44,6 @@ class WindowLifecycle:
                 from .macos_lifecycle import MacOSLifecycle
 
                 self.native = MacOSLifecycle(self.window, self.shutdown)
-            elif sys.platform == "win32":
-                from .windows_lifecycle import WindowsLifecycle
-
-                self.native = WindowsLifecycle(self.window, self.settings)
         except Exception:
             # A window must never become hidden without a working restore path.
             logger.exception("无法启用后台窗口模式，保留关闭窗口退出行为")

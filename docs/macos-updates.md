@@ -1,6 +1,6 @@
 # Mac 发布与更新
 
-发布流程已统一迁移到 [GitHub 双平台发布指南](github-releases.md)。
+发布流程已统一迁移到 [GitHub 发布指南](github-releases.md)。
 
 Mac 继续提供 Apple 芯片、macOS 26+ 的 DMG 和完整更新 ZIP，采用 ad-hoc 应用签名及现有 Ed25519 更新密钥。已有的 codesign 内联 requirement 修复保留：`-R` 参数以 `=` 开头。
 

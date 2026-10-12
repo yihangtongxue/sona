@@ -43,17 +43,7 @@ jobs:
 
   build:
     needs: metadata
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos
-            architecture: arm64
-            runner: macos-26
-          - platform: windows
-            architecture: x64
-            runner: windows-2025
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-26
     timeout-minutes: 90
     env:
       SONA_RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
@@ -68,28 +58,15 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - name: Build macOS DMG and update ZIP
-        if: matrix.platform == 'macos'
         shell: bash
         run: uv run --locked --with pyinstaller==6.22.2 python scripts/build_macos.py --confirm-version "$SONA_RELEASE_VERSION"
-      - name: Download Microsoft WebView2 bootstrapper
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          $bootstrapper = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
-          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $bootstrapper
-          "SONA_WEBVIEW_BOOTSTRAPPER=$bootstrapper" >> $env:GITHUB_ENV
-      - name: Build Windows installer and update ZIP
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: uv run --locked --with pyinstaller==6.22.2 python scripts/build_windows.py --confirm-version "$env:SONA_RELEASE_VERSION" --webview-bootstrapper "$env:SONA_WEBVIEW_BOOTSTRAPPER"
       - name: Store installable artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: sona-${{ matrix.platform }}-${{ matrix.architecture }}
+          name: sona-macos-arm64
           path: |
-            dist/Sona-${{ needs.metadata.outputs.version }}-${{ matrix.platform }}-${{ matrix.architecture }}/*.zip
-            dist/Sona-${{ needs.metadata.outputs.version }}-${{ matrix.platform }}-${{ matrix.architecture }}/*.dmg
-            dist/Sona-${{ needs.metadata.outputs.version }}-${{ matrix.platform }}-${{ matrix.architecture }}/*.exe
+            dist/Sona-${{ needs.metadata.outputs.version }}-macos-arm64/*.zip
+            dist/Sona-${{ needs.metadata.outputs.version }}-macos-arm64/*.dmg
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
