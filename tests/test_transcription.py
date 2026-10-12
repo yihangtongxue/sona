@@ -41,7 +41,7 @@ class TranscriptionStorageTests(unittest.TestCase):
 
     def claim(self, identifier):
         self.tasks.pending()
-        return self.tasks.claim(identifier, 'faster-whisper', 'revision', self.tasks.get(identifier)['model_id'])
+        return self.tasks.claim(identifier, 'mlx-whisper', 'revision', self.tasks.get(identifier)['model_id'])
 
     def test_import_and_queue_are_committed_together(self):
         self.select_model()
@@ -111,7 +111,7 @@ class TranscriptionStorageTests(unittest.TestCase):
         other = next(model for model in BUILTIN_MODELS if model.bundle and model.id != self.model.id)
         self.models.save_result(other, ModelEvent('installed', 'ready'), select=True)
         self.tasks.retry(identifier)
-        self.assertIsNone(self.tasks.claim(identifier, 'faster-whisper', 'old-revision', self.model.id))
+        self.assertIsNone(self.tasks.claim(identifier, 'mlx-whisper', 'old-revision', self.model.id))
         self.assertEqual(self.tasks.get(identifier)['model_id'], other.id)
 
     def test_cancel_wins_over_late_result(self):

@@ -27,10 +27,6 @@ class AppPaths:
     def audio_dir(self) -> Path:
         return self.data_dir / "audio"
 
-    @property
-    def acceleration_dir(self) -> Path:
-        return self.data_dir / "acceleration"
-
 
 def get_app_paths() -> AppPaths:
     project_root = Path(__file__).resolve().parents[2]
@@ -48,8 +44,6 @@ def get_app_paths() -> AppPaths:
     else:
         if sys.platform == "darwin":
             base = Path.home() / "Library" / "Application Support" / "Sona"
-        elif sys.platform == "win32":
-            base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "Sona"
         else:
             base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "sona"
         data_dir = base if environment == "production" else base / environment

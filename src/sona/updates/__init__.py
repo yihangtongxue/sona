@@ -1,1 +1,1 @@
-"""Signed GitHub Releases updates for macOS and Windows."""
+"""Signed GitHub Releases updates for macOS (Apple silicon)."""

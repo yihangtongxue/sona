@@ -1,12 +1,11 @@
 """Locate the pinned Deno executable in its owning Python distribution."""
 
-import sys
 from importlib.metadata import distribution
 from pathlib import Path
 
 
 def find_deno_binary() -> Path:
-    executable = 'deno.exe' if sys.platform == 'win32' else 'deno'
+    executable = 'deno'
     installed = distribution('deno')
     # uv --with runs Python in an overlay while Deno lives in the project
     # environment. RECORD paths belong to that distribution, unlike sys.prefix

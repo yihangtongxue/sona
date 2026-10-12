@@ -18,9 +18,9 @@ from .version import VERSION
 MAX_LOG_BYTES = 2 * 1024 * 1024
 LOG_FILES = ("sona.log", "sona.log.1", "sona.log.2")
 SAFE_VALUES = frozenset({
-    "-", "acceleration", "darwin", "win32", "linux", "arm64", "x86_64", "AMD64",
-    "production", "development", "test", "CPU", "cpu", "cuda", "Apple-GPU",
-    "apple-speech", "mlx-whisper", "faster-whisper", "float16", "float32", "int8",
+    "-", "darwin", "linux", "arm64", "x86_64",
+    "production", "development", "test", "CPU", "cpu", "Apple-GPU",
+    "apple-speech", "mlx-whisper", "float16", "float32", "int8",
     "installed", "not_installed", "downloading", "paused", "unsupported", "unknown",
     "waiting_model", "queued", "transcribing", "cancelling", "completed", "failed",
     "cancelled", "ready", "untested", "optimizing", "status", "download", "select",

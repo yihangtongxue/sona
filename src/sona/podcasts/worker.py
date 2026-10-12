@@ -24,7 +24,7 @@ def fetch_episode(job, directory, send, parent_pid):
     download_allowed = threading.Event()
 
     def watch_parent():
-        # The parent may authorize a download. EOF means it exited, including on Windows.
+        # The parent may authorize a download. EOF means it exited.
         # Stop even if the main thread is stuck in DNS or a blocking network read.
         try:
             while True:

@@ -251,11 +251,6 @@ h2 { font-size: 1.125rem; font-weight: 680; line-height: 1.35; }
 #appearance-retry { margin-top: 12px; }
 input::placeholder { color: var(--ink-faint); opacity: 1; }
 
-.acceleration-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin-top: 18px; }
-.acceleration-info { min-width: 0; flex: 1 1 220px; overflow-wrap: anywhere; }
-.acceleration-info p { font-size: .9375rem; line-height: 1.5; }
-.acceleration-info small { display: block; margin-top: 5px; color: var(--ink-muted); font-size: .8125rem; line-height: 1.55; }
-#acceleration-progress-region { margin-top: 16px; }
 .group-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; }
 #speech-models { margin-top: 8px; }
 .model-option { display: flex; flex-wrap: wrap; align-items: start; gap: 12px 20px; padding: 18px 0; border-bottom: 1px solid var(--line); }

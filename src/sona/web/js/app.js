@@ -1,13 +1,11 @@
 import { openModelSettings } from "./models.js";
 import { openAIModelSettings } from "./ai-models.js";
-import { openAccelerationSettings } from "./acceleration.js";
 import { importAudio, openAudioLibrary, locateAudio } from "./library.js";
 import { openManuscripts } from "./manuscripts.js";
 import { showToast } from "./toast.js";
 import { openAbout } from "./updates.js";
 import { initializeImportSources } from "./import-sources.js";
 import { openAppearanceSettings } from "./appearance.js";
-import { openWindowSettings } from "./window-settings.js";
 
 const navigationItems = document.querySelectorAll("[data-view]");
 const panels = document.querySelectorAll("[data-panel]");
@@ -40,10 +38,8 @@ function showView(viewName) {
   });
   if (viewName === "settings") {
     openAppearanceSettings();
-    openWindowSettings();
     openModelSettings();
     openAIModelSettings();
-    openAccelerationSettings();
     openAbout();
   }
   if (viewName === "library") openAudioLibrary();

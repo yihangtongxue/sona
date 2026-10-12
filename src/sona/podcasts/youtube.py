@@ -29,7 +29,7 @@ def runtime_options():
     import yt_dlp_ejs  # noqa: F401
 
     if getattr(sys, 'frozen', False):
-        binary = Path(sys._MEIPASS) / 'sona' / 'native' / ('deno.exe' if sys.platform == 'win32' else 'deno')
+        binary = Path(sys._MEIPASS) / 'sona' / 'native' / 'deno'
     else:
         binary = find_deno_binary()
     if not binary.is_file():

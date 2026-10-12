@@ -22,11 +22,6 @@ WEBVIEW_ZH = {
     'cocoa.menu.copy': '复制',
     'cocoa.menu.paste': '粘贴',
     'cocoa.menu.selectAll': '全选',
-    'windows.fileFilter.allFiles': '所有文件',
-    'windows.fileFilter.otherFiles': '其他文件类型',
-    'linux.openFile': '选择文件',
-    'linux.openFiles': '选择文件',
-    'linux.openFolder': '选择文件夹',
 }
 
 

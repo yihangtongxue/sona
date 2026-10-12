@@ -13,7 +13,7 @@ uv run sona
 
 Mac 使用原生 arm64 Python。当前锁定的 MLX/Metal 依赖和 Mac 打包目标为 macOS 26+，不能只修改系统版本声明来支持旧系统。Apple Speech 开发运行还需要支持 macOS 26 API 的 Command Line Tools；安装包携带编译后的辅助程序。
 
-Windows x64 源码使用 faster-whisper，默认 CPU。NVIDIA 加速由用户在应用内下载和启用，仍需兼容的显卡驱动；不要求用户安装 CUDA SDK 或修改 PATH。Windows 安装版使用 PyInstaller + Inno Setup，按当前用户安装；完整更新包不包含用户模型及数据。
+Sona 仅支持 Apple 芯片 Mac（Windows 支持在 1.3.1 后结束）。`pyproject.toml` 的 `[tool.uv] environments` 将锁文件限定为 `darwin/arm64`，因此 `uv sync` 只能在 Apple 芯片 Mac 上执行。
 
 ## 代码分工
 
@@ -21,17 +21,17 @@ Windows x64 源码使用 faster-whisper，默认 CPU。NVIDIA 加速由用户在
 | --- | --- |
 | `src/sona/app.py`、`api.py` | 生命周期、服务组装、桌面桥接 |
 | `audio_library.py`、`transcription/` | 音频导入、持久队列、本地识别及恢复 |
-| `model_service.py`、`providers/`、`acceleration/` | 模型资源、Apple Speech、Whisper 与 Windows 加速 |
+| `model_service.py`、`providers/` | 模型资源、Apple Speech 与 MLX Whisper |
 | `ai_model_service.py`、`manuscripts.py` | AI 配置、连接测试、独立文稿及整理队列 |
 | `consent.py`、`diagnostics.py`、`logging_config.py` | 首次 AI 确认、本地诊断与导出 |
 | `updates/`、`version.py` | 签名验证、更新安装、发行标识 |
 | `web/` | HTML、CSS、JavaScript 界面 |
 | `tests/` | 临时数据和模拟请求的回归用例 |
-| `scripts/`、`packaging/`、`.github/workflows/release.yml` | 双平台打包、签名和 GitHub 自动发布 |
+| `scripts/`、`packaging/`、`.github/workflows/release.yml` | Mac 打包、签名和 GitHub 自动发布 |
 
 ## 数据和恢复
 
-- 源码默认使用 `.data/development/`；Mac 安装版使用 `~/Library/Application Support/Sona/`；Windows 使用 `%LOCALAPPDATA%/Sona/`。开发数据不会自动出现在安装版中。
+- 源码默认使用 `.data/development/`；Mac 安装版使用 `~/Library/Application Support/Sona/`。开发数据不会自动出现在安装版中。
 - `SONA_ENV` 可选 `development / test / production`。设置 `SONA_DATA_DIR` 后，实际目录为 `<SONA_DATA_DIR>/<SONA_ENV>/`。
 - SQLite 使用 WAL，数据库版本目前为 6；拒绝打开更高版本数据库。后续表结构变化必须设计显式迁移，不通过清空数据库解决。在线备份使用 SQLite backup API，不能只复制正在运行的主数据库文件。
 - 音频分块导入，完整导入和转录入队同事务。队列通过跨进程锁保证单调度者，识别在 spawn 子进程中运行；取消、重试通过执行次数隔离迟到结果。
@@ -46,12 +46,12 @@ Windows x64 源码使用 faster-whisper，默认 CPU。NVIDIA 加速由用户在
 - Apple 当前为简体中文离线转录；Whisper 引擎按平台选择。音频解码使用 PyAV，不调用外部 FFmpeg。根据实际解码采样数自动分段，每段最多 30 分钟，不依赖容器时长估计，不设录音总时长上限。
 - 本地导入允许音频及 MP4、MOV、MKV、WebM、AVI、M4V、WMV、FLV、MPG、MPEG 视频容器，文件选择和拖放共用界面的扩展名列表，后端通过 `MEDIA_SUFFIXES` 校验。保留原始容器副本，由共享解码器读取第一条音轨（`audio=0`），不解码视频画面、不先转成 MP3；Apple Speech 和 Whisper 共用这条路径。无音轨时任务失败；成功、取消、重试和副本清理沿用现有队列规则。播客下载仍仅接受 `AUDIO_SUFFIXES` 中的音频格式。
 - 分段按原顺序解码和识别，不整段加载长录音、不提前缓存所有分段。Whisper 复用单个最多约 110 MiB 的 float32 PCM 缓冲区；Apple 使用最多约 55 MiB 的 int16 PCM 缓冲区和一个循环复用的临时 WAV。这些数值仅指 PCM，不包含模型、特征计算和累计文字结果的内存。
-- 同条录音的 Whisper 分段在同一子进程中执行：faster-whisper 缓存模型实例，MLX Whisper 使用依赖自身的同路径模型缓存。Apple 每段调用原生工具，结束后删除该段 WAV。模型锁和取消时终止进程的机制保持不变。
+- 同条录音的 Whisper 分段在同一子进程中执行：MLX Whisper 使用依赖自身的同路径模型缓存。Apple 每段调用原生工具，结束后删除该段 WAV。模型锁和取消时终止进程的机制保持不变。
 - 各段时间戳按累计采样数换算到整条录音，保留静音占用的时间，仅全部分段成功后保存一份结果。没有重叠音频或文本去重；30 分钟交界处的连续说话识别效果需要实机验收。中途失败、取消或退出均不保存部分结果为完成；重试及 GPU 故障后的 CPU 回退从整条录音重新开始。
 - 长转录的时间戳段落每批最多创建 200 行，批次之间让出界面线程；复制全文和 AI 整理始终使用完整正文。切换页面后取消旧结果的后续渲染。
 - AI 首个模型不自动测试或设为默认。测试通过后手动选默认，默认模型禁止编辑和删除；模型连接配置变化会重置测试状态。
-- API Key 在数据目录的 `credentials/` 中使用 AES-256-GCM 加密，SQLite 只保存引用。每次写入生成随机 nonce，以完整凭据引用为附加认证数据，防止密文在不同引用之间互换。`master.key` 保存随机 256 位主密钥；macOS/Linux 目录权限为 700、文件为 600，Windows 主密钥由当前用户 DPAPI 封装且禁止交互。主密钥不硬编码、不从机器标识推导；它和密文位于同一设备，因此不抵御同一用户权限的恶意代码，也不保证包含两者的 POSIX 备份泄露后仍安全。
-- 凭据写入采用临时文件、fsync 和原子替换，并通过进程内及跨进程锁串行化。解密失败或主密钥丢失时拒绝读取；已有密文时绝不自动生成新主密钥覆盖旧密钥。备份需保存完整 `credentials/` 目录，Windows 的 DPAPI 备份仍依赖原用户账户。该目录已加入 Git 忽略规则，也不进入诊断日志导出。
+- API Key 在数据目录的 `credentials/` 中使用 AES-256-GCM 加密，SQLite 只保存引用。每次写入生成随机 nonce，以完整凭据引用为附加认证数据，防止密文在不同引用之间互换。`master.key` 保存随机 256 位主密钥；目录权限为 700、文件为 600。主密钥不硬编码、不从机器标识推导；它和密文位于同一设备，因此不抵御同一用户权限的恶意代码，也不保证包含两者的 POSIX 备份泄露后仍安全。
+- 凭据写入采用临时文件、fsync 和原子替换，并通过进程内及跨进程锁串行化。解密失败或主密钥丢失时拒绝读取；已有密文时绝不自动生成新主密钥覆盖旧密钥。备份需保存完整 `credentials/` 目录。该目录已加入 Git 忽略规则，也不进入诊断日志导出。
 - 新凭据引用以 `local-v1:` 开头。旧 UUID 引用在首次读取时从原系统凭据存储迁移，保留引用和验证状态，兼容排队任务。迁移成功后的读取只访问本地文件；迁移失败不会在同一服务实例内反复请求授权。保存新 Key 不读取旧钥匙串，列表和清理也不访问钥匙串。为避免额外授权与迁移失败丢失数据，旧系统凭据保留，可在系统凭据管理器手动删除。任务绑定模型配置，不静默切换供应商或地址。
 - 普通连接测试为 1024 输出 tokens / 30 秒；代码对 `zai/glm-5.3`、`zai/glm-5.3-flash` 使用 4096 / 45 秒，并通过 `extra_body` 指定思考参数。这是当前实现策略，不是所有模型的通用保证。
 - 模型预算读取 LiteLLM 本地目录中的输入、输出上限；未识别模型及自定义兼容接口暂按 8192 token 窗口保守规划，不把别名当成实际模型能力。使用 UTF-8 字节数保守估算文本 token，计入系统指令、JSON、前文、消息封装、输出空间和安全余量，不下载分词器；特殊智谱模型另预留推理预算。字符数不是精确 token 数，未知代理或分词规则仍可能拒绝请求。

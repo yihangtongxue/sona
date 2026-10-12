@@ -1,7 +1,6 @@
 """Local authenticated encryption; no system credential UI for normal access.
 
-On POSIX, the random master key is protected by owner-only filesystem access.
-On Windows, DPAPI additionally wraps it for the current account. This does not
+The random master key is protected by owner-only filesystem access. This does not
 protect against code already running as that account or a complete POSIX backup
 containing both the master key and ciphertext.
 """
@@ -30,36 +29,6 @@ class CredentialError(ValueError):
     """Safe to display without exposing backend exceptions or secret material."""
 
 
-def _windows_protect(data: bytes, *, decrypt: bool = False) -> bytes:
-    """Use current-user DPAPI, explicitly forbidding interactive prompts."""
-    import ctypes
-    from ctypes import wintypes
-
-    class Blob(ctypes.Structure):
-        _fields_ = [("size", wintypes.DWORD), ("data", ctypes.POINTER(ctypes.c_ubyte))]
-
-    buffer = (ctypes.c_ubyte * len(data)).from_buffer_copy(data)
-    source = Blob(len(data), buffer)
-    result = Blob()
-    crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    function = crypt32.CryptUnprotectData if decrypt else crypt32.CryptProtectData
-    function.argtypes = [ctypes.POINTER(Blob), ctypes.c_void_p, ctypes.POINTER(Blob),
-                         ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD,
-                         ctypes.POINTER(Blob)]
-    function.restype = wintypes.BOOL
-    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
-    kernel32.LocalFree.restype = ctypes.c_void_p
-    try:
-        if not function(ctypes.byref(source), None, None, None, None, 0x1,
-                        ctypes.byref(result)):  # CRYPTPROTECT_UI_FORBIDDEN
-            raise OSError("DPAPI operation failed")
-        return ctypes.string_at(result.data, result.size)
-    finally:
-        if result.data:
-            kernel32.LocalFree(ctypes.cast(result.data, ctypes.c_void_p))
-
-
 class LocalCredentialStore:
     def __init__(self, directory: Path):
         self.directory = directory
@@ -80,10 +49,9 @@ class LocalCredentialStore:
         expected = stat.S_ISDIR if directory else stat.S_ISREG
         if not expected(info.st_mode):
             raise OSError("Credential path must not be a link or special file")
-        if os.name != "nt":
-            if info.st_uid != os.getuid():
-                raise OSError("Credential path is owned by another user")
-            path.chmod(0o700 if directory else 0o600)
+        if info.st_uid != os.getuid():
+            raise OSError("Credential path is owned by another user")
+        path.chmod(0o700 if directory else 0o600)
 
     @contextmanager
     def _locked(self):
@@ -129,12 +97,11 @@ class LocalCredentialStore:
                 stream.flush()
                 os.fsync(stream.fileno())
             temporary.replace(path)
-            if os.name != "nt":
-                descriptor = os.open(self.directory, os.O_RDONLY | os.O_DIRECTORY)
-                try:
-                    os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
+            descriptor = os.open(self.directory, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
@@ -147,16 +114,12 @@ class LocalCredentialStore:
             if not create or any(self.directory.glob("*.enc")):
                 raise CredentialError("本地解密密钥丢失，请恢复完整的 credentials 目录备份。") from None
             key = AESGCM.generate_key(bit_length=256)
-            mode = b"dpapi:" if os.name == "nt" else b"owner:"
-            payload = _windows_protect(key) if os.name == "nt" else key
-            self._write_file(self.master_path, _MASTER_HEADER + mode + payload)
+            self._write_file(self.master_path, _MASTER_HEADER + b"owner:" + key)
             return key
-        prefix = _MASTER_HEADER + (b"dpapi:" if os.name == "nt" else b"owner:")
+        prefix = _MASTER_HEADER + b"owner:"
         if not stored.startswith(prefix):
             raise CredentialError("本地解密密钥格式无效或来自其他系统，请恢复本机凭据备份。")
         key = stored[len(prefix):]
-        if os.name == "nt":
-            key = _windows_protect(key, decrypt=True)
         if len(key) != 32:
             raise CredentialError("本地解密密钥已损坏，请恢复凭据备份。")
         return key

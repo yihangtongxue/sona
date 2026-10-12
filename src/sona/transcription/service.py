@@ -23,11 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 class TranscriptionService:
-    def __init__(self, paths, provider, models, acceleration=None, *, apple_provider=None, audio_library=None, activity=None):
+    def __init__(self, paths, provider, models, *, apple_provider=None, audio_library=None, activity=None):
         self.repository = TaskRepository(paths.database)
         self._paths = paths
         self._providers = {'whisper': provider, 'apple-speech': apple_provider}
-        self._acceleration = acceleration
         self._audio_library = audio_library
         self._activity = activity
         self._models = {model.id: model for model in models if model.can_transcribe}
@@ -142,10 +141,6 @@ class TranscriptionService:
         task_log = logging.LoggerAdapter(logger, {'task_id': task['audio_id']})
         started_at = time.monotonic()
         native = task['engine'] == 'apple-speech'
-        runtime = self._acceleration.runtime_for_task() if self._acceleration and not native else None
-        force_cpu = sys.platform == 'win32' and runtime is None
-        fell_back = False
-        task_log.info('任务设备选择 force_cpu=%s managed_acceleration=%s', force_cpu, bool(runtime))
         while not self._closed.is_set():
             if self.repository.get(task['audio_id'])['status'] != 'transcribing':
                 return
@@ -154,18 +149,16 @@ class TranscriptionService:
                 target=run_worker,
                 args=(send, str(audio_path), str(model_path),
                       str(self._paths.downloads_dir / f"{task['model_id']}.lock"),
-                      task['engine'], force_cpu, task['audio_id'], runtime if not force_cpu else None,
-                      locale, work_dir),
+                      task['engine'], task['audio_id'], locale, work_dir),
                 name='sona-transcription', daemon=True,
             )
             outcome = None
             started = False
-            gpu_started = False
             last_heartbeat = time.monotonic()
             try:
                 process.start()
                 started = True
-                task_log.info('已启动识别子进程 pid=%s force_cpu=%s', process.pid, force_cpu)
+                task_log.info('已启动识别子进程 pid=%s', process.pid)
                 send.close()
                 while not self._closed.is_set():
                     current = self.repository.get(task['audio_id'])
@@ -185,11 +178,7 @@ class TranscriptionService:
                         kind = event['kind']
                         if kind == 'progress':
                             task_log.debug('收到进度 device=%s detail=%s', event.get('device', ''), event['detail'])
-                            gpu_started = event.get('device', '').startswith('NVIDIA GPU') or gpu_started
-                            detail = event['detail']
-                            if fell_back:
-                                detail = '显卡不可用，已切换为 CPU。' + detail
-                            self.repository.update(task, 'transcribing', detail, device=event.get('device'))
+                            self.repository.update(task, 'transcribing', event['detail'], device=event.get('device'))
                         else:
                             outcome = event
                             break
@@ -228,26 +217,10 @@ class TranscriptionService:
                 self.repository.update(task, 'queued', '应用关闭，等待下次启动后重新转录。')
                 return
             if outcome is None:
-                if (gpu_started or runtime) and not force_cpu:
-                    task_log.warning('GPU 进程未返回结果，使用新的 CPU 进程重试')
-                    force_cpu = True
-                    fell_back = True
-                    if runtime and self._acceleration:
-                        self._acceleration.report_failure(runtime, 'GPU process exited without a result')
-                    self.repository.update(task, 'transcribing', '显卡进程异常，正在切换为 CPU。', device='CPU')
-                    continue
                 task_log.error('识别进程未返回结果，任务失败')
                 self.repository.update(task, 'failed', '识别进程意外结束，请重试。',
                                        '识别进程没有返回结果，可能是运行库异常或内存不足。')
                 return
-            if outcome['kind'] == 'fallback' and not force_cpu:
-                task_log.warning('收到 CPU 回退请求 reason=%s', outcome.get('error', ''))
-                force_cpu = True
-                fell_back = True
-                if runtime and self._acceleration:
-                    self._acceleration.report_failure(runtime, outcome.get('error', 'GPU call failed'))
-                self.repository.update(task, 'transcribing', '显卡不可用，正在切换为 CPU。', device='CPU')
-                continue
             if outcome['kind'] == 'unavailable':
                 task_log.warning('模型暂不可用，任务等待重试')
                 self.repository.update(task, 'waiting_model', '模型正在被管理，稍后自动重试。')

@@ -36,9 +36,9 @@ def check():
 
 def prepare(directory):
     check_version(VERSION)
-    actual = {path.name for path in directory.iterdir() if path.suffix in {".zip", ".dmg", ".exe"}}
+    actual = {path.name for path in directory.iterdir() if path.suffix in {".zip", ".dmg"}}
     if actual != set(expected_assets()):
-        raise ValueError("双平台产物不齐全或包含额外版本，停止发布。")
+        raise ValueError("Mac 产物不齐全或包含额外版本，停止发布。")
     assets = []
     for name in expected_assets():
         path = directory / name
@@ -49,12 +49,12 @@ def prepare(directory):
         asset["downloadUrl"] = f"{RELEASE_REPOSITORY}/releases/download/v{VERSION}/{quote(name)}"
         assets.append(asset)
     notes_file = ROOT / f"docs/releases/{VERSION}.md"
-    notes = notes_file.read_text(encoding="utf-8") if notes_file.is_file() else f"Sona {VERSION}，包含 Windows x64 和 Apple 芯片 Mac 安装包。"
+    notes = notes_file.read_text(encoding="utf-8") if notes_file.is_file() else f"Sona {VERSION}，适用于 Apple 芯片 Mac。"
     if len(notes) > 20000:
         raise ValueError("更新说明超过客户端长度限制。")
     manifest = {"schemaVersion": 1, "channel": "stable", "version": VERSION, "tag": f"v{VERSION}",
                 "notes": notes, "assets": assets}
-    for platform, architecture in (("macos", "arm64"), ("windows", "x64")):
+    for platform, architecture in (("macos", "arm64"),):
         _, release = parse_manifest(manifest, architecture, platform=platform)
         if release is None:
             raise ValueError("更新清单缺少对应平台的更新包。")
@@ -84,8 +84,8 @@ def publish(directory):
     manifest = json.loads((directory / "stable.json").read_text(encoding="utf-8"))
     if (len(manifest.get("assets", [])) != len(expected_assets())
             or {asset.get("fileName") for asset in manifest["assets"]} != set(expected_assets())):
-        raise ValueError("发布清单必须完整包含当前版本的四个安装包。")
-    for platform, architecture in (("macos", "arm64"), ("windows", "x64")):
+        raise ValueError("发布清单必须完整包含当前版本的全部 Mac 安装包。")
+    for platform, architecture in (("macos", "arm64"),):
         _, release = parse_manifest(manifest, architecture, platform=platform)
         if release is None or release.version != VERSION:
             raise ValueError("发布清单版本或平台不匹配。")
