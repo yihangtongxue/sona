@@ -245,6 +245,43 @@ class AudioLibrary:
                 guard.__exit__(None, None, None)
                 raise
 
+    def import_local_file(self, source: Path, *, before_commit=None) -> dict:
+        """Copy a user-chosen local media file into the library (used by MCP).
+
+        Reuses the chunked-import journal so interruption recovery is identical
+        to imports from the window. The original file is never modified.
+        """
+        source = Path(source)
+        if not source.is_absolute():
+            raise ValueError("请提供本地文件的绝对路径。")
+        try:
+            info = source.stat()
+        except OSError:
+            raise ValueError(f"找不到文件：{source}") from None
+        if not source.is_file():
+            raise ValueError("只能转录音频或视频文件，不能是文件夹。")
+        identifier = self.begin_import(source.name, info.st_size)
+        try:
+            with self._mutex:
+                session = self._require_session(identifier)
+                copied = 0
+                with source.open("rb") as reader, (self._directory / ".pending.audio").open("ab") as writer:
+                    while True:
+                        data = reader.read(4 * 1024 * 1024)
+                        if not data:
+                            break
+                        copied += len(data)
+                        if copied > session["size_bytes"]:
+                            raise ValueError("文件在复制过程中发生变化，请重试。")
+                        writer.write(data)
+                session["offset"] = copied
+            if before_commit is not None:
+                before_commit(identifier)
+            return self.finish_import(identifier)
+        except Exception:
+            self.abort_import(identifier)
+            raise
+
     def _require_session(self, identifier: str) -> dict:
         if not self._session or self._session["id"] != identifier:
             raise ValueError("导入任务已结束，请重新选择文件。")

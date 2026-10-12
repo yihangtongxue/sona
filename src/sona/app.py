@@ -13,7 +13,12 @@ from .audio_library import AudioLibrary
 from .database import ModelRepository
 from .model_service import ModelService
 from .manuscripts import ManuscriptService
-from .manuscript_export import export_txt, manuscript_filename
+from .manuscript_export import FORMAT_LABELS, FORMATS, export_txt, manuscript_filename, render, write_export
+from .codex_config import codex_config
+from .mcp_server import MCPService
+from .mcp_tools import SonaTools
+from .search import search as search_index
+from .transcription_settings import TranscriptionSettings
 from .models import BUILTIN_MODELS, transcription_engine
 from .logging_config import configure_logging
 from .paths import get_app_paths
@@ -52,6 +57,7 @@ def _run_app(paths) -> None:
                 transcription_engine(), paths.data_dir)
     repository = ModelRepository(paths.database, BUILTIN_MODELS)
     appearance = AppearanceSettings(paths.data_dir)
+    transcription_settings = TranscriptionSettings(paths.data_dir)
     audio_library = AudioLibrary(paths.database, paths.audio_dir)
     whisper_provider = WhisperBundleProvider(paths.models_dir, paths.downloads_dir)
     apple_provider = AppleSpeechProvider()
@@ -62,12 +68,16 @@ def _run_app(paths) -> None:
     ai_model_service = AIModelService(paths.database)
     activity = ActivityGate()
     transcription = TranscriptionService(paths, whisper_provider, BUILTIN_MODELS,
-                                         apple_provider=apple_provider, audio_library=audio_library, activity=activity)
+                                         apple_provider=apple_provider, audio_library=audio_library, activity=activity,
+                                         language_settings=transcription_settings)
     manuscripts = ManuscriptService(paths.database, ai_model_service, activity=activity)
     podcasts = PodcastService(paths, audio_library, activity)
     updates = UpdateService(paths, activity, other_busy=lambda: audio_library.is_importing()
                             or any(record.get('active') for record in model_service.list_models()))
-    shutdown = ServiceShutdown(updates, podcasts, manuscripts, transcription,
+    tools = SonaTools(paths, audio_library, podcasts, transcription, activity)
+    mcp = MCPService(paths.data_dir, tools)
+    mcp.start()
+    shutdown = ServiceShutdown(mcp, updates, podcasts, manuscripts, transcription,
                                audio_library, model_service)
 
     def export_diagnostics():
@@ -81,17 +91,28 @@ def _run_app(paths) -> None:
         export_bundle(paths.data_dir / "logs", destination)
         return True
 
-    def export_manuscript(manuscript):
+    def save_export(document, export_format):
+        title = document.get('title') or document.get('name') or '文稿'
+        suffix = FORMATS[export_format]
         selected = window.create_file_dialog(webview.FileDialog.SAVE,
-            save_filename=manuscript_filename(manuscript['title']), file_types=("文本文件 (*.txt)",))
+            save_filename=manuscript_filename(title, export_format),
+            file_types=(f"{FORMAT_LABELS[export_format]} (*{suffix})",))
         if not selected:
             return False
         destination = Path(selected if isinstance(selected, str) else selected[0])
-        export_txt(manuscript, destination)
+        if export_format == 'txt' and 'body' in document:
+            export_txt(document, destination)
+        else:
+            write_export(render(document, export_format), destination, export_format)
         return True
 
-    def export_transcription(result):
-        return export_manuscript({'title': result['name'], 'body': result['text']})
+    def export_manuscript(manuscript, export_format='txt'):
+        return save_export(manuscript, export_format)
+
+    def export_transcription(result, export_format='txt'):
+        if export_format == 'txt':
+            return save_export({'title': result['name'], 'body': result['text']}, 'txt')
+        return save_export({**result, 'title': result['name']}, export_format)
 
     web_root = Path(__file__).with_name("web")
     icon_path = (Path(__file__).with_name("assets") / "Sona.icns" if getattr(sys, "frozen", False)
@@ -104,10 +125,28 @@ def _run_app(paths) -> None:
             js_api=AppApi(model_service, audio_library, transcription, ai_model_service,
                           manuscripts, updates, activity, consent=AIUsageConsent(paths.data_dir),
                           diagnostics=export_diagnostics, podcasts=podcasts, appearance=appearance,
-                          manuscript_export=export_manuscript, transcription_export=export_transcription),
+                          manuscript_export=export_manuscript, transcription_export=export_transcription,
+                          transcription_settings=transcription_settings, mcp=mcp, codex_config=codex_config,
+                          search=lambda query: search_index(paths.database, query, 30)),
         )
         configure_window_chrome(window, appearance)
         lifecycle = WindowLifecycle(window, shutdown)
+        if sys.platform == "darwin":
+            def install_menu_bar():
+                try:
+                    from .menu_bar import MenuBar
+
+                    def open_window():
+                        if lifecycle.native is not None:
+                            lifecycle.native.restore()
+                        else:
+                            window.show()
+
+                    lifecycle.menu_bar = MenuBar(mcp=mcp, tools=tools, codex_config=codex_config,
+                                                 open_window=open_window, quit_app=lifecycle.request_quit)
+                except Exception:
+                    logging.getLogger(__name__).exception("无法创建菜单栏图标")
+            window.events.before_show += install_menu_bar
         updates.bind_window(lifecycle.request_quit)
         updates.start_automatic_checks()
         start_options: dict[str, object] = {"http_server": True, "localization": WEBVIEW_ZH}

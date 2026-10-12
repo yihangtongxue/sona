@@ -23,12 +23,14 @@ logger = logging.getLogger(__name__)
 
 
 class TranscriptionService:
-    def __init__(self, paths, provider, models, *, apple_provider=None, audio_library=None, activity=None):
+    def __init__(self, paths, provider, models, *, apple_provider=None, audio_library=None, activity=None,
+                 language_settings=None):
         self.repository = TaskRepository(paths.database)
         self._paths = paths
         self._providers = {'whisper': provider, 'apple-speech': apple_provider}
         self._audio_library = audio_library
         self._activity = activity
+        self._language_settings = language_settings
         self._models = {model.id: model for model in models if model.can_transcribe}
         self._closed = threading.Event()
         self._context = multiprocessing.get_context('spawn')
@@ -126,7 +128,8 @@ class TranscriptionService:
                 scratch = (tempfile.TemporaryDirectory(prefix='sona-speech-')
                            if model.engine == 'apple-speech' else nullcontext(None))
                 with scratch as work_dir:
-                    self._execute(task, audio_path, state.resource_path, model.locale, work_dir)
+                    language = None if model.engine == 'apple-speech' else self.language_for(task['audio_id'])
+                    self._execute(task, audio_path, state.resource_path, model.locale, work_dir, language)
             except Exception as error:
                 task_log.exception('任务启动或结果保存失败')
                 self.repository.update(task, 'failed', '无法启动或保存转录任务，请重试。', str(error))
@@ -137,7 +140,14 @@ class TranscriptionService:
             return True
         return False
 
-    def _execute(self, task, audio_path, model_path, locale='zh-CN', work_dir=None):
+    def language_for(self, identifier):
+        """Per-task override, then the settings default; ``None`` means auto-detect."""
+        language = self.repository.language(identifier)
+        if language is None and self._language_settings is not None:
+            language = self._language_settings.get_language()
+        return None if language in (None, '', 'auto') else language
+
+    def _execute(self, task, audio_path, model_path, locale='zh-CN', work_dir=None, language=None):
         task_log = logging.LoggerAdapter(logger, {'task_id': task['audio_id']})
         started_at = time.monotonic()
         native = task['engine'] == 'apple-speech'
@@ -149,7 +159,7 @@ class TranscriptionService:
                 target=run_worker,
                 args=(send, str(audio_path), str(model_path),
                       str(self._paths.downloads_dir / f"{task['model_id']}.lock"),
-                      task['engine'], task['audio_id'], locale, work_dir),
+                      task['engine'], task['audio_id'], locale, work_dir, language),
                 name='sona-transcription', daemon=True,
             )
             outcome = None

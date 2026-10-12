@@ -97,6 +97,8 @@ class ModelStorageTests(unittest.TestCase):
                    VALUES ('saved-audio', '原始转录正文', '[]', 'zh', 1, ?,
                            'test-engine', 'test-revision', 'cpu')""", (MODEL.id,)
             )
+        # Dump after commit: FTS5 buffers index writes until the transaction ends.
+        with self.repository._connection() as connection:
             before = list(connection.iterdump())
 
         self.assertGreater(SCHEMA_VERSION, 5)
