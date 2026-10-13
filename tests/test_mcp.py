@@ -9,12 +9,12 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from sona.audio_library import AudioLibrary
 from sona.codex_config import codex_config
 from sona.database import ModelRepository
-from sona.mcp_bridge import Bridge, BridgeError, app_bundle_path, launch_app, serve
+from sona.mcp_bridge import Bridge, BridgeError, serve
 from sona.mcp_server import MCPService, read_connection
 from sona.mcp_tools import SonaTools
 from sona.transcription.repository import TaskRepository
@@ -197,8 +197,7 @@ class ServerAndBridgeTests(Fixture):
                     {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                      "params": {"name": "transcribe", "arguments": {"source": str(source), "language": "zh"}}}]
         stdout = io.BytesIO()
-        launcher = Mock()
-        serve(Bridge(self.root, launcher=launcher), io.BytesIO(b"\n".join(json.dumps(m).encode() for m in messages)), stdout)
+        serve(Bridge(self.root), io.BytesIO(b"\n".join(json.dumps(m).encode() for m in messages)), stdout)
         responses = {item["id"]: item for item in map(json.loads, stdout.getvalue().splitlines())}
         self.assertEqual(set(responses), {1, 3})  # Notifications produce no output.
         self.assertEqual(responses[1]["result"]["serverInfo"]["name"], "sona")
@@ -206,7 +205,6 @@ class ServerAndBridgeTests(Fixture):
         payload = json.loads(responses[3]["result"]["content"][0]["text"])
         self.assertEqual(payload["kind"], "file")
         self.assertEqual(self.transcription.repository.language(payload["task_id"]), "zh")
-        launcher.assert_not_called()
         self.assertGreaterEqual(self.service.status()["request_count"], 2)
 
     def test_tool_errors_are_reported_to_the_client(self):
@@ -218,53 +216,65 @@ class ServerAndBridgeTests(Fixture):
         self.assertIn("找不到任务", result["content"][0]["text"])
 
 
-class BridgeLaunchTests(unittest.TestCase):
+class BridgeConnectionTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
+        # Neither a client connection nor a request retry may start the GUI.
+        process_patch = patch("subprocess.Popen")
+        self.process = process_patch.start()
+        self.addCleanup(process_patch.stop)
+        self.addCleanup(self.process.assert_not_called)
 
-    def run_bridge(self, bridge):
+    def run_bridge(self, bridge, message=INIT):
         stdout = io.BytesIO()
-        serve(bridge, io.BytesIO(json.dumps(INIT).encode() + b"\n"), stdout)
+        serve(bridge, io.BytesIO(json.dumps(message).encode() + b"\n"), stdout)
         return json.loads(stdout.getvalue())
 
-    def test_launch_failure_returns_clear_json_rpc_error(self):
-        launcher = Mock(return_value="open -a Sona 退出码 1：Unable to find application named 'Sona'")
-        response = self.run_bridge(Bridge(self.root, launcher=launcher))
-        launcher.assert_called_once_with()
-        self.assertEqual(response["id"], 1)
-        self.assertIn("自动启动失败", response["error"]["message"])
-        self.assertIn("Unable to find application", response["error"]["message"])
+    def test_unavailable_app_returns_error_for_initialization_discovery_and_tool_calls(self):
+        messages = [INIT, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                    {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                     "params": {"name": "list_history", "arguments": {}}}]
+        for message in messages:
+            with self.subTest(method=message["method"]):
+                response = self.run_bridge(Bridge(self.root), message)
+                self.assertEqual(response["id"], message["id"])
+                self.assertIn("请手动打开 Sona", response["error"]["message"])
 
-    def test_launch_timeout_is_reported(self):
-        clock = iter(range(0, 1000, 10))
-        bridge = Bridge(self.root, launcher=Mock(return_value=None), launch_timeout=30,
-                        sleep=lambda _: None, clock=lambda: next(clock))
-        self.assertIn("秒内本地 MCP 服务未就绪", self.run_bridge(bridge)["error"]["message"])
-
-    def test_stale_connection_file_triggers_launch(self):
+    def test_stale_connection_file_returns_error(self):
         (self.root / "mcp.json").write_text(json.dumps({"port": 1, "token": "t", "pid": 1}))
-        launcher = Mock(return_value="boom")
-        with self.assertRaises(BridgeError):
-            Bridge(self.root, launcher=launcher).ensure_running()
-        launcher.assert_called_once_with()
+        with patch("sona.mcp_bridge._port_open", return_value=False), self.assertRaisesRegex(BridgeError, "请手动打开"):
+            Bridge(self.root).ensure_running()
+
+    def test_app_exiting_during_request_returns_error_and_manual_reopen_recovers(self):
+        opener = Mock(side_effect=urllib.error.URLError("connection closed"))
+        bridge = Bridge(self.root, opener=opener)
+        record = {"port": 12345, "token": "old"}
+        with patch.object(bridge, "_connection", side_effect=[record, None]):
+            self.assertIn("请手动打开", self.run_bridge(bridge)["error"]["message"])
+        opener.assert_called_once()
+
+        response = Mock(status=200, headers={"Content-Type": "application/json"})
+        response.read.return_value = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+        opener.side_effect = None
+        opener.return_value.__enter__ = Mock(return_value=response)
+        opener.return_value.__exit__ = Mock(return_value=False)
+        with patch.object(bridge, "_connection", return_value={"port": 12346, "token": "new"}):
+            self.assertEqual(self.run_bridge(bridge)["result"], {})
+        request = opener.call_args.args[0]
+        self.assertEqual(request.full_url, "http://127.0.0.1:12346/mcp")
+        self.assertEqual(request.get_header("Authorization"), "Bearer new")
+
+    def test_notifications_after_exit_produce_no_response(self):
+        stdout = io.BytesIO()
+        serve(Bridge(self.root), io.BytesIO(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n'), stdout)
+        self.assertEqual(stdout.getvalue(), b"")
 
     def test_invalid_json_gets_parse_error(self):
         stdout = io.BytesIO()
-        serve(Bridge(self.root, launcher=Mock()), io.BytesIO(b"{not json\n"), stdout)
+        serve(Bridge(self.root), io.BytesIO(b"{not json\n"), stdout)
         self.assertEqual(json.loads(stdout.getvalue())["error"]["code"], -32700)
-
-    def test_launch_app_uses_open_a_sona(self):
-        run = Mock(return_value=Mock(returncode=0, stderr=b""))
-        self.assertIsNone(launch_app(run))
-        self.assertEqual(run.call_args.args[0], ["open", "-a", "Sona"])
-        run = Mock(return_value=Mock(returncode=1, stderr=b"not found"))
-        self.assertIn("not found", launch_app(run))
-
-    def test_app_bundle_path(self):
-        self.assertEqual(app_bundle_path("/Applications/Sona.app/Contents/MacOS/Sona"), Path("/Applications/Sona.app"))
-        self.assertIsNone(app_bundle_path("/usr/bin/python3"))
 
 
 class CodexConfigTests(unittest.TestCase):

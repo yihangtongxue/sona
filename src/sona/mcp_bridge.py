@@ -2,6 +2,7 @@
 
 stdout carries protocol messages only. The access token is read from the app
 data directory for every connection attempt and never appears in client config.
+The app must be opened manually; MCP requests never launch or restart it.
 """
 
 from __future__ import annotations
@@ -10,10 +11,8 @@ import json
 import logging
 import os
 import socket
-import subprocess
 import sys
 import threading
-import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -23,43 +22,12 @@ from .mcp_server import MCP_PATH, read_connection
 
 logger = logging.getLogger(__name__)
 
-LAUNCH_TIMEOUT = 45
 REQUEST_TIMEOUT = 180
 ACCEPT = "application/json, text/event-stream"
 
 
 class BridgeError(Exception):
     pass
-
-
-def app_bundle_path(executable: str | None = None) -> Path | None:
-    """Return the .app bundle containing a frozen executable, if any."""
-    executable = Path(executable or sys.executable).resolve()
-    for parent in executable.parents:
-        if parent.suffix == ".app":
-            return parent
-    return None
-
-
-def launch_app(run=subprocess.run) -> str | None:
-    """Start Sona; return an error description or None on success."""
-    attempts = [["open", "-a", "Sona"]]
-    bundle = app_bundle_path() if getattr(sys, "frozen", False) else None
-    if bundle is not None:
-        attempts.append(["open", str(bundle)])
-    errors = []
-    for command in attempts:
-        try:
-            completed = run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.PIPE, timeout=20, check=False)
-        except (OSError, subprocess.SubprocessError) as error:
-            errors.append(f"{' '.join(command)}：{error}")
-            continue
-        if completed.returncode == 0:
-            return None
-        detail = (completed.stderr or b"").decode("utf-8", "replace").strip()
-        errors.append(f"{' '.join(command)} 退出码 {completed.returncode}{'：' + detail if detail else ''}")
-    return "；".join(errors) or "无法执行 open 命令"
 
 
 def _port_open(port: int) -> bool:
@@ -71,15 +39,9 @@ def _port_open(port: int) -> bool:
 
 
 class Bridge:
-    def __init__(self, data_dir: Path, *, launcher=launch_app, launch_timeout=LAUNCH_TIMEOUT,
-                 opener=urllib.request.urlopen, sleep=time.sleep, clock=time.monotonic):
+    def __init__(self, data_dir: Path, *, opener=urllib.request.urlopen):
         self._data_dir = data_dir
-        self._launcher = launcher
-        self._launch_timeout = launch_timeout
         self._opener = opener
-        self._sleep = sleep
-        self._clock = clock
-        self._launch_lock = threading.Lock()
 
     def _connection(self) -> dict | None:
         record = read_connection(self._data_dir)
@@ -88,25 +50,12 @@ class Bridge:
         return None
 
     def ensure_running(self) -> dict:
+        """Connect only to an already-running app; never launch or restart it."""
         record = self._connection()
         if record:
             return record
-        with self._launch_lock:
-            record = self._connection()
-            if record:
-                return record
-            logger.info("Sona 未运行，尝试自动启动")
-            failure = self._launcher()
-            if failure:
-                raise BridgeError(f"Sona 未运行，自动启动失败（{failure}）。请确认 Sona 已安装在“应用程序”中并手动打开一次。")
-            deadline = self._clock() + self._launch_timeout
-            while self._clock() < deadline:
-                record = self._connection()
-                if record:
-                    return record
-                self._sleep(0.5)
-        raise BridgeError(f"已尝试启动 Sona，但 {self._launch_timeout} 秒内本地 MCP 服务未就绪。"
-                          "请打开 Sona，在菜单栏或“设置 → AI 工具连接”查看 MCP 状态后重试。")
+        raise BridgeError("Sona 未运行或本地 MCP 服务未就绪。请手动打开 Sona，"
+                          "在菜单栏或“设置 → AI 工具连接”确认 MCP 状态后重试；不会自动启动或重启 Sona。")
 
     def _post(self, record: dict, body: bytes):
         request = urllib.request.Request(
@@ -128,7 +77,7 @@ class Bridge:
                 status, content_type, payload = self._post(record, body)
             except (urllib.error.URLError, OSError) as error:
                 if attempt == 0:
-                    continue  # The app may have just quit; relaunch once.
+                    continue  # Reread connection info, without relaunching the app.
                 raise BridgeError(f"无法连接 Sona 本地 MCP 服务：{error}") from None
             if status == 401 and attempt == 0:
                 continue  # Token rotated by an app restart; reread mcp.json.

@@ -1,6 +1,6 @@
 [project]
 name = "sona"
-version = "1.5.0"
+version = "1.5.1"
 description = "Local audio transcription for Apple silicon Macs with MLX Whisper and Apple Speech"
 readme = "README.md"
 authors = [
