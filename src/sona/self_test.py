@@ -49,7 +49,7 @@ def main() -> int:
             ]
             stdin = io.BytesIO(b"".join(json.dumps(item).encode() + b"\n" for item in requests))
             stdout = io.BytesIO()
-            serve(Bridge(data_dir, launcher=lambda: "self-test never launches"), stdin, stdout)
+            serve(Bridge(data_dir), stdin, stdout)
             responses = {item.get("id"): item for item in map(json.loads, stdout.getvalue().splitlines())}
             tools = {tool["name"] for tool in responses.get(2, {}).get("result", {}).get("tools", [])}
             if tools != EXPECTED_TOOLS:
